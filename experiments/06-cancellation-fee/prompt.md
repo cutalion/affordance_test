@@ -1,0 +1,1 @@
+Add a cancellation fee. If the client cancels less than 24 hours before the scheduled time, charge 50% of the amount. Implement this in the cancel flow. Implement this and commit your changes.

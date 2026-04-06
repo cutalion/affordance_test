@@ -1,0 +1,1 @@
+What is the happy path for the main entity in this system? Walk through it step by step.
