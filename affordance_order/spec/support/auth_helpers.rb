@@ -11,4 +11,5 @@ end
 
 RSpec.configure do |config|
   config.include AuthHelpers, type: :request
+  config.include ActiveSupport::Testing::TimeHelpers
 end
