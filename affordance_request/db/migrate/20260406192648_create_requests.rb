@@ -1,4 +1,4 @@
-class CreateOrders < ActiveRecord::Migration[8.1]
+class CreateRequests < ActiveRecord::Migration[8.1]
   def change
     create_table :requests do |t|
       t.references :client, null: false, foreign_key: true
