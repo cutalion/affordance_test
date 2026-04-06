@@ -75,13 +75,13 @@ for exp in $EXPERIMENTS; do
           cd "$APP_DIR"
           RESULT=$(echo "$PROMPT" | claude -p --bare --dangerously-skip-permissions --model "$model" 2>/dev/null) || true
 
-          # Commit any uncommitted changes from repo root
+          # Commit any uncommitted changes (only app directory)
           cd "$ROOT"
-          git add -A 2>/dev/null || true
+          git add "affordance_$app/" 2>/dev/null || true
           git diff --cached --quiet 2>/dev/null || git commit -m "experiment: $exp $app $model run-$run (auto-committed)" 2>/dev/null || true
 
-          # Capture output + diff
-          DIFF=$(git diff main..HEAD 2>/dev/null) || DIFF="(no diff)"
+          # Capture diff (only app directory changes)
+          DIFF=$(git diff main..HEAD -- "affordance_$app/" 2>/dev/null) || DIFF="(no diff)"
 
           {
             echo "# Experiment: $exp"
