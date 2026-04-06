@@ -24,5 +24,14 @@ Rails.application.routes.draw do
     resources :payments, only: [:index, :show]
   end
 
+  namespace :admin do
+    get "/", to: "dashboard#index"
+    get "dashboard", to: "dashboard#index"
+    resources :orders, only: [:index, :show]
+    resources :clients, only: [:index, :show]
+    resources :providers, only: [:index, :show]
+    resources :payments, only: [:index, :show]
+  end
+
   get "up" => "rails/health#show", as: :rails_health_check
 end
