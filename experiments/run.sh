@@ -13,9 +13,11 @@ APPS="${3:-order request}"
 MAX_RUN="${4:-5}"
 
 TOTAL=0
+CURRENT=0
 DONE=0
 SKIPPED=0
 FAILED=0
+WALL_START=$(date +%s)
 
 # Count total runs
 for exp in $EXPERIMENTS; do
@@ -52,14 +54,16 @@ for exp in $EXPERIMENTS; do
         OUTPUT_FILE="$ROOT/experiments/$exp/runs/${app}-${model}-${run}.md"
         RUN_LABEL="$exp/$app/$model/run-$run"
 
+        CURRENT=$((CURRENT + 1))
+
         # Skip if already done
         if [ -f "$OUTPUT_FILE" ]; then
           SKIPPED=$((SKIPPED + 1))
-          echo "  SKIP $RUN_LABEL (exists)"
+          echo "  [$CURRENT/$TOTAL] SKIP $RUN_LABEL (exists)"
           continue
         fi
 
-        echo -n "  RUN  $RUN_LABEL ... "
+        echo -n "  [$CURRENT/$TOTAL] RUN  $RUN_LABEL ... "
         START_TIME=$(date +%s)
 
         if [ "$TYPE" = "code" ]; then
@@ -138,6 +142,12 @@ for exp in $EXPERIMENTS; do
   echo ""
 done
 
+WALL_END=$(date +%s)
+WALL_ELAPSED=$(( WALL_END - WALL_START ))
+WALL_MIN=$(( WALL_ELAPSED / 60 ))
+WALL_SEC=$(( WALL_ELAPSED % 60 ))
+
 echo "==================================="
 echo "Complete: $DONE | Skipped: $SKIPPED | Failed: $FAILED | Total: $TOTAL"
+echo "Wall time: ${WALL_MIN}m ${WALL_SEC}s"
 echo "==================================="
