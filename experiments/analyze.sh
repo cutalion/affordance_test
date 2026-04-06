@@ -1,0 +1,215 @@
+#!/bin/bash
+set -euo pipefail
+
+# Post-experiment analysis — runs blind comparison via claude opus
+# Usage: ./experiments/analyze.sh [experiment]
+# Defaults to analyzing all experiments.
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+EXPERIMENTS="${1:-01-describe-system 02-rebook-feature 03-propose-different-time 04-bulk-booking 05-auto-assignment 06-cancellation-fee 07-happy-path}"
+
+echo "=== Affordance Experiment Analyzer ==="
+echo ""
+
+for exp in $EXPERIMENTS; do
+  ANALYSIS_FILE="$ROOT/experiments/$exp/analysis.md"
+  PROMPT_FILE="$ROOT/experiments/$exp/prompt.md"
+  RUNS_DIR="$ROOT/experiments/$exp/runs"
+
+  # Check if runs exist
+  RUN_COUNT=$(find "$RUNS_DIR" -name "*.md" 2>/dev/null | wc -l)
+  if [ "$RUN_COUNT" -eq 0 ]; then
+    echo "SKIP $exp (no runs found)"
+    continue
+  fi
+
+  # Skip if analysis already exists
+  if [ -f "$ANALYSIS_FILE" ]; then
+    echo "SKIP $exp (analysis exists)"
+    continue
+  fi
+
+  echo -n "ANALYZE $exp ($RUN_COUNT runs) ... "
+
+  # Build analysis prompt in a temp file
+  TMPFILE=$(mktemp)
+
+  cat >> "$TMPFILE" << 'INSTRUCTIONS'
+You are analyzing an experiment comparing AI responses to identical prompts given in two different codebases. The codebases are structurally identical except for naming conventions. You do not know what the naming difference is.
+
+INSTRUCTIONS
+
+  echo "## Prompt Given" >> "$TMPFILE"
+  echo "" >> "$TMPFILE"
+  cat "$PROMPT_FILE" >> "$TMPFILE"
+  echo "" >> "$TMPFILE"
+
+  echo "## App A Responses" >> "$TMPFILE"
+  echo "" >> "$TMPFILE"
+  for f in "$RUNS_DIR"/order-*.md; do
+    [ -f "$f" ] || continue
+    echo "### $(basename "$f" .md)" >> "$TMPFILE"
+    echo "" >> "$TMPFILE"
+    cat "$f" >> "$TMPFILE"
+    echo "" >> "$TMPFILE"
+    echo "---" >> "$TMPFILE"
+    echo "" >> "$TMPFILE"
+  done
+
+  echo "## App B Responses" >> "$TMPFILE"
+  echo "" >> "$TMPFILE"
+  for f in "$RUNS_DIR"/request-*.md; do
+    [ -f "$f" ] || continue
+    echo "### $(basename "$f" .md)" >> "$TMPFILE"
+    echo "" >> "$TMPFILE"
+    cat "$f" >> "$TMPFILE"
+    echo "" >> "$TMPFILE"
+    echo "---" >> "$TMPFILE"
+    echo "" >> "$TMPFILE"
+  done
+
+  cat >> "$TMPFILE" << 'ANALYSIS_INSTRUCTIONS'
+
+Analyze across these dimensions:
+
+1. **Language/framing**: How does each set describe the domain? What words and metaphors are used?
+2. **Architectural choices**: What models, states, or abstractions were proposed or used?
+3. **Complexity**: Estimate lines of code, number of new files, new states/fields added (for code experiments). For text experiments, compare verbosity and detail level.
+4. **Scope**: Did responses stay on-task or add unrequested features? Any scope creep?
+5. **Assumptions**: What did responses assume about the system purpose or user intent?
+6. **Model comparison**: Did Sonnet and Opus responses differ in their patterns within each app?
+
+Provide:
+- A **pattern summary** across all runs for each dimension
+- **Confidence level**: strong pattern / weak signal / no difference
+- **Notable outliers** (individual runs that broke the pattern)
+- **Raw tallies** where applicable (e.g., "App A added N new states on average, App B added M")
+- A **bottom line**: one paragraph summarizing the most important finding
+ANALYSIS_INSTRUCTIONS
+
+  RESULT=$(cat "$TMPFILE" | claude -p --bare --dangerously-skip-permissions --model opus 2>/dev/null) || true
+  rm -f "$TMPFILE"
+
+  if [ -n "$RESULT" ]; then
+    {
+      echo "# Analysis: $exp"
+      echo ""
+      echo "> Blind comparison — App A and App B naming not revealed to analyzer."
+      echo ""
+      echo "$RESULT"
+    } > "$ANALYSIS_FILE"
+    echo "done"
+  else
+    echo "FAILED"
+  fi
+done
+
+echo ""
+echo "=== Generating summaries ==="
+echo ""
+
+for exp in $EXPERIMENTS; do
+  SUMMARY_FILE="$ROOT/experiments/$exp/summary.md"
+  ANALYSIS_FILE="$ROOT/experiments/$exp/analysis.md"
+
+  if [ ! -f "$ANALYSIS_FILE" ]; then
+    echo "SKIP $exp summary (no analysis)"
+    continue
+  fi
+
+  if [ -f "$SUMMARY_FILE" ]; then
+    echo "SKIP $exp summary (exists)"
+    continue
+  fi
+
+  echo -n "SUMMARY $exp ... "
+
+  source "$ROOT/experiments/$exp/config.sh"
+
+  # Build summary prompt in temp file
+  TMPFILE=$(mktemp)
+
+  cat >> "$TMPFILE" << 'SUMMARY_INTRO'
+You are writing a summary for an AI naming affordance experiment.
+
+The experiment tested how AI agents respond differently to two identical codebases that differ only in naming:
+- **App A = Order app** (affordance_order/) — central entity is 'Order' with clean states: pending, confirmed, in_progress, completed, canceled, rejected
+- **App B = Request app** (affordance_request/) — central entity is 'Request' with legacy invitation-era states: created, created_accepted, accepted, started, fulfilled, declined, missed, canceled, rejected
+
+The Request app evolved from an invitation system (invite sitter) but is functionally an order/booking system. Nobody refactored the naming.
+
+## Blind Analysis (naming was hidden from analyzer)
+
+SUMMARY_INTRO
+
+  cat "$ANALYSIS_FILE" >> "$TMPFILE"
+
+  cat >> "$TMPFILE" << 'SUMMARY_TASK'
+
+## Your Task
+
+Write a concise summary (under 500 words) that:
+1. Reveals the naming difference and connects it to the blind analysis findings
+2. States the key conclusion: did naming affect AI reasoning? How?
+3. Notes the confidence level
+4. Highlights the most surprising or interesting finding
+SUMMARY_TASK
+
+  RESULT=$(cat "$TMPFILE" | claude -p --bare --dangerously-skip-permissions --model opus 2>/dev/null) || true
+  rm -f "$TMPFILE"
+
+  # Build branch list for code experiments
+  BRANCHES=""
+  if [ "$TYPE" = "code" ]; then
+    BRANCHES="
+
+## Branches
+
+### Order App
+"
+    for f in "$ROOT/experiments/$exp/runs"/order-*.md; do
+      [ -f "$f" ] || continue
+      BASENAME=$(basename "$f" .md)
+      # Parse: order-sonnet-1 -> model=sonnet, run=1
+      MODEL=$(echo "$BASENAME" | sed 's/order-//' | sed 's/-[0-9]*$//')
+      RUN_NUM=$(echo "$BASENAME" | grep -o '[0-9]*$')
+      BRANCHES="$BRANCHES
+- \`experiment/${exp}/order/${MODEL}/run-${RUN_NUM}\`"
+    done
+    BRANCHES="$BRANCHES
+
+### Request App
+"
+    for f in "$ROOT/experiments/$exp/runs"/request-*.md; do
+      [ -f "$f" ] || continue
+      BASENAME=$(basename "$f" .md)
+      MODEL=$(echo "$BASENAME" | sed 's/request-//' | sed 's/-[0-9]*$//')
+      RUN_NUM=$(echo "$BASENAME" | grep -o '[0-9]*$')
+      BRANCHES="$BRANCHES
+- \`experiment/${exp}/request/${MODEL}/run-${RUN_NUM}\`"
+    done
+  fi
+
+  if [ -n "$RESULT" ]; then
+    {
+      echo "# Summary: $exp"
+      echo ""
+      echo "**Prompt:** $(cat "$ROOT/experiments/$exp/prompt.md")"
+      echo ""
+      echo "**Type:** $TYPE"
+      echo ""
+      echo "**Naming key:** App A = Order (clean states) | App B = Request (legacy invitation-era states)"
+      echo ""
+      echo "---"
+      echo ""
+      echo "$RESULT"
+      echo "$BRANCHES"
+    } > "$SUMMARY_FILE"
+    echo "done"
+  else
+    echo "FAILED"
+  fi
+done
+
+echo ""
+echo "=== Analysis complete ==="
