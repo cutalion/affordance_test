@@ -1,0 +1,55 @@
+<h1>Requests (<%= @total_count %>)</h1>
+
+<div class="filter-form">
+  <%= form_tag(admin_requests_path, method: :get) do %>
+    <div>
+      <label>State</label>
+      <%= select_tag :state, options_for_select([["All", ""], "created", "created_accepted", "accepted", "started", "fulfilled", "declined", "missed", "canceled", "rejected"], params[:state]), class: "" %>
+    </div>
+    <div>
+      <label>From</label>
+      <%= date_field_tag :from, params[:from] %>
+    </div>
+    <div>
+      <label>To</label>
+      <%= date_field_tag :to, params[:to] %>
+    </div>
+    <div>
+      <button type="submit">Filter</button>
+    </div>
+  <% end %>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Client</th>
+      <th>Provider</th>
+      <th>State</th>
+      <th>Scheduled</th>
+      <th>Amount</th>
+      <th>Created</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @requests.each do |req| %>
+      <tr>
+        <td><%= link_to "##{req.id}", admin_request_path(req) %></td>
+        <td><%= link_to req.client.name, admin_client_path(req.client) %></td>
+        <td><%= link_to req.provider.name, admin_provider_path(req.provider) %></td>
+        <td><span class="badge badge-<%= req.state %>"><%= req.state.humanize %></span></td>
+        <td><%= req.scheduled_at&.strftime("%Y-%m-%d %H:%M") %></td>
+        <td><%= number_with_precision(req.amount_cents.to_f / 100, precision: 2) %> <%= req.currency %></td>
+        <td><%= req.created_at&.strftime("%Y-%m-%d") %></td>
+      </tr>
+    <% end %>
+    <% if @requests.empty? %>
+      <tr><td colspan="7" style="text-align:center; color:#7f8c8d;">No requests found</td></tr>
+    <% end %>
+  </tbody>
+</table>
+
+<div class="pagination">
+  Showing <%= @requests.length %> of <%= @total_count %> requests
+</div>
