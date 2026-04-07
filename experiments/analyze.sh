@@ -87,7 +87,7 @@ Provide:
 - A **bottom line**: one paragraph summarizing the most important finding
 ANALYSIS_INSTRUCTIONS
 
-  RESULT=$(cat "$TMPFILE" | claude -p --bare --dangerously-skip-permissions --model opus 2>/dev/null) || true
+  RESULT=$(cat "$TMPFILE" | claude -p --dangerously-skip-permissions --disable-slash-commands --model opus 2>/dev/null) || true
   rm -f "$TMPFILE"
 
   if [ -n "$RESULT" ]; then
@@ -155,7 +155,7 @@ Write a concise summary (under 500 words) that:
 4. Highlights the most surprising or interesting finding
 SUMMARY_TASK
 
-  RESULT=$(cat "$TMPFILE" | claude -p --bare --dangerously-skip-permissions --model opus 2>/dev/null) || true
+  RESULT=$(cat "$TMPFILE" | claude -p --dangerously-skip-permissions --disable-slash-commands --model opus 2>/dev/null) || true
   rm -f "$TMPFILE"
 
   # Build branch list for code experiments

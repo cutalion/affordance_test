@@ -30,6 +30,12 @@ for exp in $EXPERIMENTS; do
   done
 done
 
+# Hide CLAUDE.md to prevent experiment contamination (it mentions "affordance test")
+if [ -f "$ROOT/CLAUDE.md" ]; then
+  mv "$ROOT/CLAUDE.md" "$ROOT/.CLAUDE.md.hidden"
+  trap 'mv "$ROOT/.CLAUDE.md.hidden" "$ROOT/CLAUDE.md" 2>/dev/null || true' EXIT
+fi
+
 echo "=== Affordance Experiment Runner ==="
 echo "Experiments: $EXPERIMENTS"
 echo "Models: $MODELS"
@@ -77,7 +83,7 @@ for exp in $EXPERIMENTS; do
 
           # Run claude from the app directory
           cd "$APP_DIR"
-          RESULT=$(echo "$PROMPT" | claude -p --bare --dangerously-skip-permissions --model "$model" 2>/dev/null) || true
+          RESULT=$(echo "$PROMPT" | claude -p --dangerously-skip-permissions --disable-slash-commands --model "$model" 2>/dev/null) || true
 
           # Commit any uncommitted changes (only app directory)
           cd "$ROOT"
@@ -113,7 +119,7 @@ for exp in $EXPERIMENTS; do
         else
           # Read-only experiment
           cd "$APP_DIR"
-          RESULT=$(echo "$PROMPT" | claude -p --bare --dangerously-skip-permissions --model "$model" 2>/dev/null) || true
+          RESULT=$(echo "$PROMPT" | claude -p --dangerously-skip-permissions --disable-slash-commands --model "$model" 2>/dev/null) || true
           cd "$ROOT"
 
           {
