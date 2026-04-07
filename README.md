@@ -13,7 +13,9 @@ Two structurally related Rails 8.1 booking apps manage the same domain — clien
 | Services | 6 | 8 (extra: CreateAcceptedService, DeclineService) |
 | Origin | Clean design | Evolved from an invitation system; never refactored |
 
-The Request app is inspired by a real production codebase where the entity was originally an "invite a sitter" flow that became a booking system over time — but nobody renamed anything.
+The Request app is inspired by a real production codebase (a babysitting/childcare marketplace). The original flow was: a parent sends a **request** to a specific sitter, essentially inviting them — the sitter can *accept* or *decline*, and if they don't respond, the request is *missed*. Over time the product evolved into a straightforward booking system (pick a time, get matched with a provider, pay), but the entity stayed `Request` and the invitation-era states (`created_accepted`, `declined`, `missed`) were never cleaned up. The state `created_accepted` is a relic of a two-phase flow where the sitter could be pre-assigned before formally accepting — it no longer serves a distinct purpose but remains in the schema.
+
+The Order app represents what the Request app *would look like* if someone had refactored the naming to match the current business reality: a clean booking/order pipeline with states that read as a straightforward lifecycle.
 
 ## The Experiments
 
