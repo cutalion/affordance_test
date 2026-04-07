@@ -2,6 +2,31 @@
 
 An experiment exploring how naming conventions in code affect the way AI agents (Claude Opus and Sonnet) understand, describe, and modify a codebase.
 
+## What Is an Affordance?
+
+An [**affordance**](https://en.wikipedia.org/wiki/Affordance) is a property of an object or environment that suggests to a person exactly how they can interact with it. Simply put, it's an intuitive "cue" about a thing's purpose, embedded in its shape or design.
+
+The term is most commonly used in cognitive psychology, industrial design, and user interface (UI/UX) design.
+
+### Physical World Examples
+* **A light switch button:** Its raised shape suggests that it is meant to be pressed.
+* **A chair:** Its flat, horizontal surface at knee level "invites" you to sit on it.
+* **A doorknob:** A round knob suggests it needs to be grasped and turned, while a flat vertical handle indicates it should be pulled.
+
+### Digital Environment Examples (UI/UX)
+* **Blue underlined text:** A historically established affordance indicating a clickable link.
+* **A 3D button on a website:** A gradient or drop shadow creates an illusion of depth, inviting the user to click.
+* **An empty field with a blinking cursor:** Gives a clear signal that text can be typed into it.
+
+### Where the Term Originated
+1. **James Gibson (Psychologist):** First coined the term in the late 1970s. For him, an affordance meant *all* physical action possibilities an environment offers a human (or animal), regardless of whether the individual actually perceives them. For example, a rock has the affordance of "being thrown" or "serving as a hammer."
+2. **Don Norman (Designer):** In his 1988 book *The Design of Everyday Things*, Norman adapted the term for the design world. He shifted the focus to **perceived affordance** — meaning the action possibilities that are *readily apparent* to the user at first glance.
+
+### Why It Matters
+Good design relies on clear affordances. If a person needs an explanatory sign to figure out how to open a door (push vs. pull) or how to submit data in an application, it means the affordances are poorly designed.
+
+A classic example of bad affordance is the so-called "Norman Door." These are doors equipped with vertical pull handles (which naturally invite you to pull them), but they actually open by pushing. Because of the conflict between the appearance (the affordance) and the actual physical mechanism, people constantly push when they should pull, or vice versa.
+
 ## The Setup
 
 Two structurally related Rails 8.1 booking apps manage the same domain — clients booking providers for services. They differ in one key way:
@@ -107,3 +132,12 @@ cd affordance_request && bundle install && bin/rails db:create db:migrate && bun
 ## Read the Full Report
 
 Start with **[experiments/REPORT.md](experiments/REPORT.md)** for the cross-experiment synthesis, or browse individual experiment summaries in each experiment directory.
+
+## Further Reading on Affordances in Code
+
+* [Affordance](https://en.wikipedia.org/wiki/Affordance) -- Wikipedia overview of the concept from Gibson through Norman
+* [What Does OO Afford?](https://sandimetz.com/blog/2018/21/what-does-oo-afford) -- Sandi Metz on how object-oriented programming affords anthropomorphic, polymorphic, loosely-coupled designs
+* [Some Quick Thoughts on Input Validation](https://avdi.codes/some-quick-thoughts-on-input-validation/) -- Avdi Grimm on how code has affordances and validation DSLs can break them
+* [Affordances in Programming Languages](https://www.youtube.com/watch?v=fjH1DCa56Co) -- Randy Coulman's RubyConf 2014 talk, directly on the topic
+* [Affordances in Code Design](https://mozaicworks.com/blog/affordances-in-code-design) -- Alex Bolboaca applying Don Norman's affordance concept to code structure
+* [The Role of Affordance in Software Design](https://hackernoon.com/affordance-in-software-design-12cc0d9d2721) -- Perceived affordance as a criterion for API and code effectiveness
