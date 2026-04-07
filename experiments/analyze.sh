@@ -38,7 +38,7 @@ for exp in $EXPERIMENTS; do
   TMPFILE=$(mktemp)
 
   cat >> "$TMPFILE" << 'INSTRUCTIONS'
-You are analyzing an experiment comparing AI responses to identical prompts given in two different codebases. The codebases are structurally identical except for naming conventions. You do not know what the naming difference is.
+You are analyzing an experiment comparing AI responses to identical prompts given in three different codebases. The codebases differ in naming conventions and/or structural complexity. You do not know what the differences are.
 
 INSTRUCTIONS
 
@@ -63,6 +63,20 @@ INSTRUCTIONS
   echo "" >> "$TMPFILE"
   for f in "$RUNS_DIR"/request-*.md; do
     [ -f "$f" ] || continue
+    # Skip request_clean files (they go under App C)
+    case "$(basename "$f")" in request_clean-*) continue ;; esac
+    echo "### $(basename "$f" .md)" >> "$TMPFILE"
+    echo "" >> "$TMPFILE"
+    cat "$f" >> "$TMPFILE"
+    echo "" >> "$TMPFILE"
+    echo "---" >> "$TMPFILE"
+    echo "" >> "$TMPFILE"
+  done
+
+  echo "## App C Responses" >> "$TMPFILE"
+  echo "" >> "$TMPFILE"
+  for f in "$RUNS_DIR"/request_clean-*.md; do
+    [ -f "$f" ] || continue
     echo "### $(basename "$f" .md)" >> "$TMPFILE"
     echo "" >> "$TMPFILE"
     cat "$f" >> "$TMPFILE"
@@ -86,7 +100,8 @@ Provide:
 - A **pattern summary** across all runs for each dimension
 - **Confidence level**: strong pattern / weak signal / no difference
 - **Notable outliers** (individual runs that broke the pattern)
-- **Raw tallies** where applicable (e.g., "App A added N new states on average, App B added M")
+- **Raw tallies** where applicable (e.g., "App A added N new states on average, App B added M, App C added P")
+- **Pairwise comparisons**: A vs B, A vs C, B vs C — which pairs are most similar? Most different?
 - A **bottom line**: one paragraph summarizing the most important finding
 ANALYSIS_INSTRUCTIONS
 
@@ -135,11 +150,12 @@ for exp in $EXPERIMENTS; do
   cat >> "$TMPFILE" << 'SUMMARY_INTRO'
 You are writing a summary for an AI naming affordance experiment.
 
-The experiment tested how AI agents respond differently to two identical codebases that differ only in naming:
+The experiment tested how AI agents respond differently to three related codebases:
 - **App A = Order app** (affordance_order/) — central entity is 'Order' with clean states: pending, confirmed, in_progress, completed, canceled, rejected
-- **App B = Request app** (affordance_request/) — central entity is 'Request' with legacy invitation-era states: created, created_accepted, accepted, started, fulfilled, declined, missed, canceled, rejected
+- **App B = Request app** (affordance_request/) — central entity is 'Request' with legacy invitation-era states: created, created_accepted, accepted, started, fulfilled, declined, missed, canceled, rejected. Has extra services (CreateAcceptedService, DeclineService) and extra API endpoint.
+- **App C = Request Clean app** (affordance_request_clean/) — central entity is 'Request' but with the SAME clean states as Order: pending, confirmed, in_progress, completed, canceled, rejected. Same service structure as Order. This isolates naming from structural complexity.
 
-The Request app evolved from an invitation system (invite sitter) but is functionally an order/booking system. Nobody refactored the naming.
+The Request app evolved from an invitation system (invite sitter) but is functionally an order/booking system. Nobody refactored the naming. The Request Clean app tests whether the name "Request" alone (without legacy structural complexity) produces different AI behavior than "Order".
 
 ## Blind Analysis (naming was hidden from analyzer)
 
@@ -151,11 +167,12 @@ SUMMARY_INTRO
 
 ## Your Task
 
-Write a concise summary (under 500 words) that:
-1. Reveals the naming difference and connects it to the blind analysis findings
-2. States the key conclusion: did naming affect AI reasoning? How?
-3. Notes the confidence level
-4. Highlights the most surprising or interesting finding
+Write a concise summary (under 700 words) that:
+1. Reveals the naming/structural differences and connects them to the blind analysis findings
+2. States the key conclusion: did naming alone affect AI reasoning? Did structural complexity matter independently?
+3. Compares App C (Request naming + clean states) to both App A and App B — does it behave like A (same structure) or B (same name)?
+4. Notes the confidence level
+5. Highlights the most surprising or interesting finding
 SUMMARY_TASK
 
   RESULT=$(cat "$TMPFILE" | claude -p --dangerously-skip-permissions --disable-slash-commands --model opus 2>/dev/null) || true
@@ -185,11 +202,25 @@ SUMMARY_TASK
 "
     for f in "$ROOT/experiments/$exp/runs"/request-*.md; do
       [ -f "$f" ] || continue
+      # Skip request_clean files
+      case "$(basename "$f")" in request_clean-*) continue ;; esac
       BASENAME=$(basename "$f" .md)
       MODEL=$(echo "$BASENAME" | sed 's/request-//' | sed 's/-[0-9]*$//')
       RUN_NUM=$(echo "$BASENAME" | grep -o '[0-9]*$')
       BRANCHES="$BRANCHES
 - \`experiment/${exp}/request/${MODEL}/run-${RUN_NUM}\`"
+    done
+    BRANCHES="$BRANCHES
+
+### Request Clean App
+"
+    for f in "$ROOT/experiments/$exp/runs"/request_clean-*.md; do
+      [ -f "$f" ] || continue
+      BASENAME=$(basename "$f" .md)
+      MODEL=$(echo "$BASENAME" | sed 's/request_clean-//' | sed 's/-[0-9]*$//')
+      RUN_NUM=$(echo "$BASENAME" | grep -o '[0-9]*$')
+      BRANCHES="$BRANCHES
+- \`experiment/${exp}/request_clean/${MODEL}/run-${RUN_NUM}\`"
     done
   fi
 
@@ -201,7 +232,7 @@ SUMMARY_TASK
       echo ""
       echo "**Type:** $TYPE"
       echo ""
-      echo "**Naming key:** App A = Order (clean states) | App B = Request (legacy invitation-era states)"
+      echo "**Naming key:** App A = Order (clean name + clean states) | App B = Request (legacy name + legacy states) | App C = Request Clean (legacy name + clean states)"
       echo ""
       echo "---"
       echo ""

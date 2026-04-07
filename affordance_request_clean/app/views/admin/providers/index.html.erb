@@ -1,0 +1,35 @@
+<h1>Providers (<%= @total_count %>)</h1>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Name</th>
+      <th>Email</th>
+      <th>Specialization</th>
+      <th>Rating</th>
+      <th>Active</th>
+      <th>Registered</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @providers.each do |provider| %>
+      <tr>
+        <td><%= link_to "##{provider.id}", admin_provider_path(provider) %></td>
+        <td><%= link_to provider.name, admin_provider_path(provider) %></td>
+        <td><%= provider.email %></td>
+        <td><%= provider.specialization %></td>
+        <td><%= provider.rating %></td>
+        <td><%= provider.active? ? "Yes" : "No" %></td>
+        <td><%= provider.created_at&.strftime("%Y-%m-%d") %></td>
+      </tr>
+    <% end %>
+    <% if @providers.empty? %>
+      <tr><td colspan="7" style="text-align:center; color:#7f8c8d;">No providers found</td></tr>
+    <% end %>
+  </tbody>
+</table>
+
+<div class="pagination">
+  Showing <%= @providers.length %> of <%= @total_count %> providers
+</div>

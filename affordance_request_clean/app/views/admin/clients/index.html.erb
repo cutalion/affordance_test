@@ -1,0 +1,31 @@
+<h1>Clients (<%= @total_count %>)</h1>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Name</th>
+      <th>Email</th>
+      <th>Phone</th>
+      <th>Registered</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @clients.each do |client| %>
+      <tr>
+        <td><%= link_to "##{client.id}", admin_client_path(client) %></td>
+        <td><%= link_to client.name, admin_client_path(client) %></td>
+        <td><%= client.email %></td>
+        <td><%= client.phone %></td>
+        <td><%= client.created_at&.strftime("%Y-%m-%d") %></td>
+      </tr>
+    <% end %>
+    <% if @clients.empty? %>
+      <tr><td colspan="5" style="text-align:center; color:#7f8c8d;">No clients found</td></tr>
+    <% end %>
+  </tbody>
+</table>
+
+<div class="pagination">
+  Showing <%= @clients.length %> of <%= @total_count %> clients
+</div>

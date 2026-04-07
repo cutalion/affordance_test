@@ -12,7 +12,7 @@ unset ANTHROPIC_API_KEY
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 EXPERIMENTS="${1:-01-describe-system 02-rebook-feature 03-propose-different-time 04-bulk-booking 05-auto-assignment 06-cancellation-fee 07-happy-path}"
 MODELS="${2:-sonnet opus}"
-APPS="${3:-order request}"
+APPS="${3:-order request request_clean}"
 MAX_RUN="${4:-3}"
 
 TOTAL=0

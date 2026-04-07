@@ -1,0 +1,41 @@
+<%= link_to "&larr; Back to Providers".html_safe, admin_providers_path, class: "back-link" %>
+<h1><%= @provider.name %></h1>
+
+<div class="detail-card" style="margin-bottom:24px; max-width:600px;">
+  <h2>Provider Details</h2>
+  <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value"><%= @provider.id %></span></div>
+  <div class="detail-row"><span class="detail-label">Name</span><span class="detail-value"><%= @provider.name %></span></div>
+  <div class="detail-row"><span class="detail-label">Email</span><span class="detail-value"><%= @provider.email %></span></div>
+  <div class="detail-row"><span class="detail-label">Phone</span><span class="detail-value"><%= @provider.phone %></span></div>
+  <div class="detail-row"><span class="detail-label">Specialization</span><span class="detail-value"><%= @provider.specialization %></span></div>
+  <div class="detail-row"><span class="detail-label">Rating</span><span class="detail-value"><%= @provider.rating %></span></div>
+  <div class="detail-row"><span class="detail-label">Active</span><span class="detail-value"><%= @provider.active? ? "Yes" : "No" %></span></div>
+  <div class="detail-row"><span class="detail-label">Registered</span><span class="detail-value"><%= @provider.created_at&.strftime("%Y-%m-%d %H:%M") %></span></div>
+</div>
+
+<h2>Recent Requests</h2>
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Client</th>
+      <th>State</th>
+      <th>Scheduled</th>
+      <th>Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @recent_requests.each do |request| %>
+      <tr>
+        <td><%= link_to "##{request.id}", admin_request_path(request) %></td>
+        <td><%= request.client.name %></td>
+        <td><span class="badge badge-<%= request.state %>"><%= request.state.humanize %></span></td>
+        <td><%= request.scheduled_at&.strftime("%Y-%m-%d %H:%M") %></td>
+        <td><%= number_with_precision(request.amount_cents.to_f / 100, precision: 2) %> <%= request.currency %></td>
+      </tr>
+    <% end %>
+    <% if @recent_requests.empty? %>
+      <tr><td colspan="5" style="text-align:center; color:#7f8c8d;">No requests</td></tr>
+    <% end %>
+  </tbody>
+</table>
