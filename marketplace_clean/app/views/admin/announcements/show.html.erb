@@ -1,0 +1,48 @@
+<%= link_to "&larr; Back to Announcements".html_safe, admin_announcements_path, class: "back-link" %>
+<h1>Announcement #<%= @announcement.id %></h1>
+
+<div class="detail-grid">
+  <div class="detail-card">
+    <h2>Announcement Details</h2>
+    <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value"><%= @announcement.id %></span></div>
+    <div class="detail-row"><span class="detail-label">State</span><span class="detail-value"><span class="badge badge-<%= @announcement.state %>"><%= @announcement.state.humanize %></span></span></div>
+    <div class="detail-row"><span class="detail-label">Client</span><span class="detail-value"><%= link_to @announcement.client.name, admin_client_path(@announcement.client) %></span></div>
+    <div class="detail-row"><span class="detail-label">Title</span><span class="detail-value"><%= @announcement.title %></span></div>
+    <div class="detail-row"><span class="detail-label">Description</span><span class="detail-value"><%= @announcement.description || "—" %></span></div>
+    <div class="detail-row"><span class="detail-label">Location</span><span class="detail-value"><%= @announcement.location || "—" %></span></div>
+    <div class="detail-row"><span class="detail-label">Scheduled At</span><span class="detail-value"><%= @announcement.scheduled_at&.strftime("%Y-%m-%d %H:%M") || "—" %></span></div>
+    <div class="detail-row"><span class="detail-label">Duration</span><span class="detail-value"><%= @announcement.duration_minutes ? "#{@announcement.duration_minutes} min" : "—" %></span></div>
+    <div class="detail-row"><span class="detail-label">Budget</span><span class="detail-value"><%= @announcement.budget_cents ? "#{number_with_precision(@announcement.budget_cents.to_f / 100, precision: 2)} #{@announcement.currency}" : "—" %></span></div>
+    <div class="detail-row"><span class="detail-label">Published At</span><span class="detail-value"><%= @announcement.published_at&.strftime("%Y-%m-%d %H:%M") || "—" %></span></div>
+    <div class="detail-row"><span class="detail-label">Closed At</span><span class="detail-value"><%= @announcement.closed_at&.strftime("%Y-%m-%d %H:%M") || "—" %></span></div>
+    <div class="detail-row"><span class="detail-label">Created At</span><span class="detail-value"><%= @announcement.created_at&.strftime("%Y-%m-%d %H:%M") %></span></div>
+  </div>
+</div>
+
+<% if @announcement.responses.any? %>
+  <h2>Responses (<%= @announcement.responses.count %>)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Provider</th>
+        <th>State</th>
+        <th>Proposed Amount</th>
+        <th>Message</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @announcement.responses.each do |response| %>
+        <tr>
+          <td>#<%= response.id %></td>
+          <td><%= link_to response.provider.name, admin_provider_path(response.provider) %></td>
+          <td><span class="badge badge-<%= response.state %>"><%= response.state.humanize %></span></td>
+          <td><%= response.proposed_amount_cents ? "#{number_with_precision(response.proposed_amount_cents.to_f / 100, precision: 2)} #{@announcement.currency}" : "—" %></td>
+          <td><%= response.message || "—" %></td>
+          <td><%= response.created_at&.strftime("%Y-%m-%d %H:%M") %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>

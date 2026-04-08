@@ -1,0 +1,9 @@
+<%= link_to "&larr; Back to Clients".html_safe, admin_clients_path, class: "back-link" %>
+<h1><%= @client.name %></h1>
+
+<div class="detail-card">
+  <div class="detail-row"><span class="detail-label">Email</span><span class="detail-value"><%= @client.email %></span></div>
+  <div class="detail-row"><span class="detail-label">Phone</span><span class="detail-value"><%= @client.phone %></span></div>
+  <div class="detail-row"><span class="detail-label">Requests</span><span class="detail-value"><%= @client.requests.count %></span></div>
+  <div class="detail-row"><span class="detail-label">Created</span><span class="detail-value"><%= @client.created_at&.strftime("%Y-%m-%d %H:%M") %></span></div>
+</div>
