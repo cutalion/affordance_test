@@ -1,0 +1,22 @@
+<%= link_to "&larr; Back to Requests".html_safe, admin_requests_path, class: "back-link" %>
+<h1>Request #<%= @request.id %></h1>
+
+<div class="detail-grid">
+  <div class="detail-card">
+    <h2>Request Details</h2>
+    <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value"><%= @request.id %></span></div>
+    <div class="detail-row"><span class="detail-label">State</span><span class="detail-value"><span class="badge badge-<%= @request.state %>"><%= @request.state.humanize %></span></span></div>
+    <div class="detail-row"><span class="detail-label">Client</span><span class="detail-value"><%= link_to @request.client.name, admin_client_path(@request.client) %></span></div>
+    <div class="detail-row"><span class="detail-label">Provider</span><span class="detail-value"><%= link_to @request.provider.name, admin_provider_path(@request.provider) %></span></div>
+    <div class="detail-row"><span class="detail-label">Scheduled At</span><span class="detail-value"><%= @request.scheduled_at&.strftime("%Y-%m-%d %H:%M") %></span></div>
+    <div class="detail-row"><span class="detail-label">Duration</span><span class="detail-value"><%= @request.duration_minutes %> min</span></div>
+    <div class="detail-row"><span class="detail-label">Location</span><span class="detail-value"><%= @request.location %></span></div>
+    <div class="detail-row"><span class="detail-label">Notes</span><span class="detail-value"><%= @request.notes %></span></div>
+    <div class="detail-row"><span class="detail-label">Accepted At</span><span class="detail-value"><%= @request.accepted_at&.strftime("%Y-%m-%d %H:%M") || "—" %></span></div>
+    <div class="detail-row"><span class="detail-label">Expired At</span><span class="detail-value"><%= @request.expired_at&.strftime("%Y-%m-%d %H:%M") || "—" %></span></div>
+    <% if @request.decline_reason.present? %>
+      <div class="detail-row"><span class="detail-label">Decline Reason</span><span class="detail-value"><%= @request.decline_reason %></span></div>
+    <% end %>
+    <div class="detail-row"><span class="detail-label">Created At</span><span class="detail-value"><%= @request.created_at&.strftime("%Y-%m-%d %H:%M") %></span></div>
+  </div>
+</div>

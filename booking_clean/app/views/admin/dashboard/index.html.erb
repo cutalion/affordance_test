@@ -1,0 +1,84 @@
+<h1>Dashboard</h1>
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="label">Clients</div>
+    <div class="value"><%= @clients_count %></div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Providers</div>
+    <div class="value"><%= @providers_count %></div>
+  </div>
+  <% %w[pending accepted declined expired].each do |state| %>
+    <div class="stat-card">
+      <div class="label">Requests <span class="badge badge-<%= state %>"><%= state.humanize %></span></div>
+      <div class="value"><%= @requests_by_state[state] || 0 %></div>
+    </div>
+  <% end %>
+  <% %w[pending confirmed in_progress completed canceled rejected].each do |state| %>
+    <div class="stat-card">
+      <div class="label">Orders <span class="badge badge-<%= state %>"><%= state.humanize %></span></div>
+      <div class="value"><%= @orders_by_state[state] || 0 %></div>
+    </div>
+  <% end %>
+</div>
+
+<h2>Recent Requests</h2>
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Client</th>
+      <th>Provider</th>
+      <th>State</th>
+      <th>Scheduled</th>
+      <th>Created</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @recent_requests.each do |request| %>
+      <tr>
+        <td><%= link_to "##{request.id}", admin_request_path(request) %></td>
+        <td><%= request.client.name %></td>
+        <td><%= request.provider.name %></td>
+        <td><span class="badge badge-<%= request.state %>"><%= request.state.humanize %></span></td>
+        <td><%= request.scheduled_at&.strftime("%Y-%m-%d %H:%M") %></td>
+        <td><%= request.created_at&.strftime("%Y-%m-%d") %></td>
+      </tr>
+    <% end %>
+    <% if @recent_requests.empty? %>
+      <tr><td colspan="6" style="text-align:center; color:#7f8c8d;">No requests yet</td></tr>
+    <% end %>
+  </tbody>
+</table>
+
+<h2>Recent Orders</h2>
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Client</th>
+      <th>Provider</th>
+      <th>State</th>
+      <th>Scheduled</th>
+      <th>Amount</th>
+      <th>Created</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @recent_orders.each do |order| %>
+      <tr>
+        <td><%= link_to "##{order.id}", admin_order_path(order) %></td>
+        <td><%= order.client.name %></td>
+        <td><%= order.provider.name %></td>
+        <td><span class="badge badge-<%= order.state %>"><%= order.state.humanize %></span></td>
+        <td><%= order.scheduled_at&.strftime("%Y-%m-%d %H:%M") %></td>
+        <td><%= number_with_precision(order.amount_cents.to_f / 100, precision: 2) %> <%= order.currency %></td>
+        <td><%= order.created_at&.strftime("%Y-%m-%d") %></td>
+      </tr>
+    <% end %>
+    <% if @recent_orders.empty? %>
+      <tr><td colspan="7" style="text-align:center; color:#7f8c8d;">No orders yet</td></tr>
+    <% end %>
+  </tbody>
+</table>

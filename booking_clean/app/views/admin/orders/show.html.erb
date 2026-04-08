@@ -1,0 +1,53 @@
+<%= link_to "&larr; Back to Orders".html_safe, admin_orders_path, class: "back-link" %>
+<h1>Order #<%= @order.id %></h1>
+
+<div class="detail-grid">
+  <div class="detail-card">
+    <h2>Order Details</h2>
+    <div class="detail-row"><span class="detail-label">ID</span><span class="detail-value"><%= @order.id %></span></div>
+    <div class="detail-row"><span class="detail-label">State</span><span class="detail-value"><span class="badge badge-<%= @order.state %>"><%= @order.state.humanize %></span></span></div>
+    <div class="detail-row"><span class="detail-label">Client</span><span class="detail-value"><%= link_to @order.client.name, admin_client_path(@order.client) %></span></div>
+    <div class="detail-row"><span class="detail-label">Provider</span><span class="detail-value"><%= link_to @order.provider.name, admin_provider_path(@order.provider) %></span></div>
+    <div class="detail-row"><span class="detail-label">Scheduled At</span><span class="detail-value"><%= @order.scheduled_at&.strftime("%Y-%m-%d %H:%M") %></span></div>
+    <div class="detail-row"><span class="detail-label">Duration</span><span class="detail-value"><%= @order.duration_minutes %> min</span></div>
+    <div class="detail-row"><span class="detail-label">Location</span><span class="detail-value"><%= @order.location %></span></div>
+    <div class="detail-row"><span class="detail-label">Amount</span><span class="detail-value"><%= number_with_precision(@order.amount_cents.to_f / 100, precision: 2) %> <%= @order.currency %></span></div>
+    <div class="detail-row"><span class="detail-label">Notes</span><span class="detail-value"><%= @order.notes %></span></div>
+    <div class="detail-row"><span class="detail-label">Started At</span><span class="detail-value"><%= @order.started_at&.strftime("%Y-%m-%d %H:%M") || "—" %></span></div>
+    <div class="detail-row"><span class="detail-label">Completed At</span><span class="detail-value"><%= @order.completed_at&.strftime("%Y-%m-%d %H:%M") || "—" %></span></div>
+    <% if @order.cancel_reason.present? %>
+      <div class="detail-row"><span class="detail-label">Cancel Reason</span><span class="detail-value"><%= @order.cancel_reason %></span></div>
+    <% end %>
+    <% if @order.reject_reason.present? %>
+      <div class="detail-row"><span class="detail-label">Reject Reason</span><span class="detail-value"><%= @order.reject_reason %></span></div>
+    <% end %>
+    <div class="detail-row"><span class="detail-label">Created At</span><span class="detail-value"><%= @order.created_at&.strftime("%Y-%m-%d %H:%M") %></span></div>
+  </div>
+
+  <div>
+    <% if @order.payment %>
+      <div class="detail-card" style="margin-bottom:24px;">
+        <h2>Payment</h2>
+        <div class="detail-row"><span class="detail-label">Payment ID</span><span class="detail-value"><%= link_to @order.payment.id, admin_payment_path(@order.payment) %></span></div>
+        <div class="detail-row"><span class="detail-label">Status</span><span class="detail-value"><span class="badge badge-<%= @order.payment.status %>"><%= @order.payment.status %></span></span></div>
+        <div class="detail-row"><span class="detail-label">Amount</span><span class="detail-value"><%= number_with_precision(@order.payment.amount_cents.to_f / 100, precision: 2) %> <%= @order.payment.currency %></span></div>
+        <div class="detail-row"><span class="detail-label">Fee</span><span class="detail-value"><%= number_with_precision(@order.payment.fee_cents.to_f / 100, precision: 2) %> <%= @order.payment.currency %></span></div>
+        <div class="detail-row"><span class="detail-label">Held At</span><span class="detail-value"><%= @order.payment.held_at&.strftime("%Y-%m-%d %H:%M") || "—" %></span></div>
+        <div class="detail-row"><span class="detail-label">Charged At</span><span class="detail-value"><%= @order.payment.charged_at&.strftime("%Y-%m-%d %H:%M") || "—" %></span></div>
+        <div class="detail-row"><span class="detail-label">Refunded At</span><span class="detail-value"><%= @order.payment.refunded_at&.strftime("%Y-%m-%d %H:%M") || "—" %></span></div>
+      </div>
+    <% end %>
+
+    <% if @order.reviews.any? %>
+      <div class="detail-card">
+        <h2>Reviews</h2>
+        <% @order.reviews.each do |review| %>
+          <div style="padding: 12px 0; border-bottom: 1px solid #f0f2f5;">
+            <div style="font-size:13px; color:#7f8c8d; margin-bottom:4px;"><%= review.author_type %> &mdash; Rating: <%= review.rating %>/5</div>
+            <div><%= review.body %></div>
+          </div>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+</div>
