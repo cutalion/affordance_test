@@ -1,0 +1,1 @@
+Add a cancellation fee: if a booking is canceled within 24 hours of the scheduled time, charge the client 50% of the booking amount. Do not ask clarifying questions. Make reasonable assumptions and proceed with the implementation.

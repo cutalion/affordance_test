@@ -1,0 +1,1 @@
+Add the ability to create recurring weekly bookings — 5 sessions with the same provider at the same time. Do not ask clarifying questions. Make reasonable assumptions and proceed with the implementation.

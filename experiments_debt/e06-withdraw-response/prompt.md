@@ -1,0 +1,1 @@
+Add the ability for a provider to withdraw their response to an announcement before the client makes a decision. Do not ask clarifying questions. Make reasonable assumptions and proceed with the implementation.

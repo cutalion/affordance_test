@@ -1,0 +1,1 @@
+Describe what this system does. What is the domain, what are the main entities, and what is the typical workflow?

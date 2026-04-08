@@ -1,0 +1,1 @@
+Add the ability for providers to propose a different time for a booking. The client can accept or decline the counter-proposal. Do not ask clarifying questions. Make reasonable assumptions and proceed with the implementation.
