@@ -1,0 +1,11 @@
+<%= link_to "&larr; Back to Providers".html_safe, admin_providers_path, class: "back-link" %>
+<h1><%= @provider.name %></h1>
+
+<div class="detail-card">
+  <div class="detail-row"><span class="detail-label">Email</span><span class="detail-value"><%= @provider.email %></span></div>
+  <div class="detail-row"><span class="detail-label">Phone</span><span class="detail-value"><%= @provider.phone %></span></div>
+  <div class="detail-row"><span class="detail-label">Specialization</span><span class="detail-value"><%= @provider.specialization %></span></div>
+  <div class="detail-row"><span class="detail-label">Rating</span><span class="detail-value"><%= @provider.rating %></span></div>
+  <div class="detail-row"><span class="detail-label">Active</span><span class="detail-value"><%= @provider.active? ? "Yes" : "No" %></span></div>
+  <div class="detail-row"><span class="detail-label">Requests</span><span class="detail-value"><%= @provider.requests.count %></span></div>
+</div>

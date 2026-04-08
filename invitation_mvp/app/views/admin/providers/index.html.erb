@@ -1,0 +1,26 @@
+<h1>Providers (<%= @total_count %>)</h1>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Name</th>
+      <th>Email</th>
+      <th>Specialization</th>
+      <th>Rating</th>
+      <th>Active</th>
+    </tr>
+  </thead>
+  <tbody>
+    <% @providers.each do |provider| %>
+      <tr>
+        <td><%= link_to "##{provider.id}", admin_provider_path(provider) %></td>
+        <td><%= provider.name %></td>
+        <td><%= provider.email %></td>
+        <td><%= provider.specialization %></td>
+        <td><%= provider.rating %></td>
+        <td><%= provider.active? ? "Yes" : "No" %></td>
+      </tr>
+    <% end %>
+  </tbody>
+</table>
