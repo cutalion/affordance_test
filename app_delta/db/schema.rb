@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_09_140800) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_08_140808) do
   create_table "announcements", force: :cascade do |t|
     t.integer "budget_cents"
     t.integer "client_id", null: false
@@ -65,7 +65,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_09_140800) do
     t.string "location"
     t.text "notes"
     t.integer "provider_id", null: false
-    t.integer "recurring_booking_id"
     t.text "reject_reason"
     t.integer "request_id"
     t.datetime "scheduled_at", null: false
@@ -74,7 +73,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_09_140800) do
     t.datetime "updated_at", null: false
     t.index ["client_id"], name: "index_orders_on_client_id"
     t.index ["provider_id"], name: "index_orders_on_provider_id"
-    t.index ["recurring_booking_id"], name: "index_orders_on_recurring_booking_id"
     t.index ["request_id"], name: "index_orders_on_request_id"
     t.index ["scheduled_at"], name: "index_orders_on_scheduled_at"
     t.index ["state"], name: "index_orders_on_state"
@@ -110,22 +108,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_09_140800) do
     t.datetime "updated_at", null: false
     t.index ["api_token"], name: "index_providers_on_api_token", unique: true
     t.index ["email"], name: "index_providers_on_email", unique: true
-  end
-
-  create_table "recurring_bookings", force: :cascade do |t|
-    t.integer "amount_cents", null: false
-    t.integer "client_id", null: false
-    t.datetime "created_at", null: false
-    t.string "currency", default: "RUB", null: false
-    t.integer "duration_minutes", null: false
-    t.datetime "first_scheduled_at", null: false
-    t.string "location"
-    t.text "notes"
-    t.integer "provider_id", null: false
-    t.integer "session_count", default: 5, null: false
-    t.datetime "updated_at", null: false
-    t.index ["client_id"], name: "index_recurring_bookings_on_client_id"
-    t.index ["provider_id"], name: "index_recurring_bookings_on_provider_id"
   end
 
   create_table "requests", force: :cascade do |t|
@@ -178,12 +160,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_09_140800) do
   add_foreign_key "cards", "clients"
   add_foreign_key "orders", "clients"
   add_foreign_key "orders", "providers"
-  add_foreign_key "orders", "recurring_bookings"
   add_foreign_key "orders", "requests"
   add_foreign_key "payments", "cards"
   add_foreign_key "payments", "orders"
-  add_foreign_key "recurring_bookings", "clients"
-  add_foreign_key "recurring_bookings", "providers"
   add_foreign_key "requests", "clients"
   add_foreign_key "requests", "providers"
   add_foreign_key "responses", "announcements"

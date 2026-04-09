@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_09_081113) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_08_140805) do
   create_table "cards", force: :cascade do |t|
     t.string "brand", null: false
     t.integer "client_id", null: false
@@ -82,8 +82,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_09_081113) do
     t.string "location"
     t.text "notes"
     t.integer "provider_id", null: false
-    t.string "recurring_group_id"
-    t.integer "recurring_index"
     t.text "reject_reason"
     t.datetime "scheduled_at", null: false
     t.datetime "started_at"
@@ -91,7 +89,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_09_081113) do
     t.datetime "updated_at", null: false
     t.index ["client_id"], name: "index_requests_on_client_id"
     t.index ["provider_id"], name: "index_requests_on_provider_id"
-    t.index ["recurring_group_id"], name: "index_requests_on_recurring_group_id"
     t.index ["scheduled_at"], name: "index_requests_on_scheduled_at"
     t.index ["state"], name: "index_requests_on_state"
   end

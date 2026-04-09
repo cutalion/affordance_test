@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_09_075820) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_08_140806) do
   create_table "cards", force: :cascade do |t|
     t.string "brand", null: false
     t.integer "client_id", null: false
@@ -92,20 +92,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_09_075820) do
     t.index ["email"], name: "index_providers_on_email", unique: true
   end
 
-  create_table "recurring_bookings", force: :cascade do |t|
-    t.integer "client_id", null: false
-    t.datetime "created_at", null: false
-    t.integer "duration_minutes", null: false
-    t.string "location"
-    t.text "notes"
-    t.integer "provider_id", null: false
-    t.datetime "scheduled_at", null: false
-    t.integer "sessions_count", default: 5, null: false
-    t.datetime "updated_at", null: false
-    t.index ["client_id"], name: "index_recurring_bookings_on_client_id"
-    t.index ["provider_id"], name: "index_recurring_bookings_on_provider_id"
-  end
-
   create_table "requests", force: :cascade do |t|
     t.datetime "accepted_at"
     t.integer "client_id", null: false
@@ -116,13 +102,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_09_075820) do
     t.string "location"
     t.text "notes"
     t.integer "provider_id", null: false
-    t.integer "recurring_booking_id"
     t.datetime "scheduled_at", null: false
     t.string "state", default: "pending", null: false
     t.datetime "updated_at", null: false
     t.index ["client_id"], name: "index_requests_on_client_id"
     t.index ["provider_id"], name: "index_requests_on_provider_id"
-    t.index ["recurring_booking_id"], name: "index_requests_on_recurring_booking_id"
     t.index ["scheduled_at"], name: "index_requests_on_scheduled_at"
     t.index ["state"], name: "index_requests_on_state"
   end
@@ -146,10 +130,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_09_075820) do
   add_foreign_key "orders", "requests"
   add_foreign_key "payments", "cards"
   add_foreign_key "payments", "orders"
-  add_foreign_key "recurring_bookings", "clients"
-  add_foreign_key "recurring_bookings", "providers"
   add_foreign_key "requests", "clients"
   add_foreign_key "requests", "providers"
-  add_foreign_key "requests", "recurring_bookings"
   add_foreign_key "reviews", "orders"
 end
