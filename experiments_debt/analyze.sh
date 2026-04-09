@@ -6,7 +6,7 @@ unset ANTHROPIC_API_KEY
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 EXPERIMENTS="${1:-e01-describe-system e02-happy-path e03-counter-proposal e04-cancellation-fee e05-recurring-bookings e06-withdraw-response}"
 
-APP_LABELS=("invitation_mvp:A" "booking_clean:B" "booking_debt:C" "marketplace_clean:D" "marketplace_debt:E")
+APP_LABELS=("app_alpha:A" "app_bravo:B" "app_charlie:C" "app_delta:D" "app_echo:E")
 
 echo "=== Debt Threshold Experiment Analyzer ==="
 echo ""
@@ -50,10 +50,13 @@ INSTRUCTIONS
 
     echo "## App $LABEL Responses" >> "$TMPFILE"
     echo "" >> "$TMPFILE"
+    RUN_NUM=0
     for f in $FILES; do
-      echo "### $(basename "$f" .md)" >> "$TMPFILE"
+      RUN_NUM=$((RUN_NUM + 1))
+      echo "### App $LABEL — Run $RUN_NUM" >> "$TMPFILE"
       echo "" >> "$TMPFILE"
-      cat "$f" >> "$TMPFILE"
+      # Strip header lines that contain app/model names to prevent identity leaks
+      tail -n +5 "$f" >> "$TMPFILE"
       echo "" >> "$TMPFILE"
       echo "---" >> "$TMPFILE"
       echo "" >> "$TMPFILE"

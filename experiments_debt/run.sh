@@ -10,7 +10,7 @@ unset ANTHROPIC_API_KEY
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 EXPERIMENTS="${1:-e01-describe-system e02-happy-path e03-counter-proposal e04-cancellation-fee e05-recurring-bookings e06-withdraw-response}"
 MODEL="opus"
-APPS="${2:-invitation_mvp booking_clean booking_debt marketplace_clean marketplace_debt}"
+APPS="${2:-app_alpha app_bravo app_charlie app_delta app_echo}"
 MAX_RUN="${3:-3}"
 
 # Define which experiments run on which apps
@@ -21,12 +21,12 @@ can_run() {
       return 0 ;; # All apps
     e03-counter-proposal|e04-cancellation-fee|e05-recurring-bookings)
       case "$app" in
-        invitation_mvp) return 1 ;; # Skip MVP for these
+        app_alpha) return 1 ;; # Skip MVP for these
         *) return 0 ;;
       esac ;;
     e06-withdraw-response)
       case "$app" in
-        marketplace_clean|marketplace_debt) return 0 ;;
+        app_delta|app_echo) return 0 ;;
         *) return 1 ;; # Only stage 2 apps
       esac ;;
   esac
@@ -38,6 +38,16 @@ DONE=0
 SKIPPED=0
 FAILED=0
 WALL_START=$(date +%s)
+
+# Check if Claude output indicates an error (rate limit, auth failure, etc.)
+is_error_output() {
+  local output="$1"
+  if [ -z "$output" ]; then return 0; fi
+  if echo "$output" | grep -qiE "hit your limit|rate limit|resets [0-9]|unauthorized|authentication failed|API error|Could not connect"; then
+    return 0
+  fi
+  return 1
+}
 
 for exp in $EXPERIMENTS; do
   for app in $APPS; do
@@ -98,7 +108,19 @@ for exp in $EXPERIMENTS; do
         git checkout -b "$BRANCH" 2>/dev/null
 
         cd "$APP_DIR"
-        RESULT=$(echo "$PROMPT" | claude -p --dangerously-skip-permissions --disable-slash-commands --model "$MODEL" 2>/dev/null) || true
+        RESULT=$(echo "$PROMPT" | claude -p --dangerously-skip-permissions --disable-slash-commands --model "$MODEL" 2>&1) || true
+
+        if is_error_output "$RESULT"; then
+          cd "$ROOT"
+          git checkout main 2>/dev/null
+          git branch -D "$BRANCH" 2>/dev/null || true
+          END_TIME=$(date +%s)
+          ELAPSED=$((END_TIME - START_TIME))
+          echo "ERROR (${ELAPSED}s): $RESULT"
+          echo ""
+          echo "Aborting — Claude returned an error. Fix the issue and re-run."
+          exit 1
+        fi
 
         cd "$ROOT"
         git add "$app/" 2>/dev/null || true
@@ -130,8 +152,17 @@ for exp in $EXPERIMENTS; do
 
       else
         cd "$APP_DIR"
-        RESULT=$(echo "$PROMPT" | claude -p --dangerously-skip-permissions --disable-slash-commands --model "$MODEL" 2>/dev/null) || true
+        RESULT=$(echo "$PROMPT" | claude -p --dangerously-skip-permissions --disable-slash-commands --model "$MODEL" 2>&1) || true
         cd "$ROOT"
+
+        if is_error_output "$RESULT"; then
+          END_TIME=$(date +%s)
+          ELAPSED=$((END_TIME - START_TIME))
+          echo "ERROR (${ELAPSED}s): $RESULT"
+          echo ""
+          echo "Aborting — Claude returned an error. Fix the issue and re-run."
+          exit 1
+        fi
 
         {
           echo "# Experiment: $exp"
@@ -145,14 +176,8 @@ for exp in $EXPERIMENTS; do
 
       END_TIME=$(date +%s)
       ELAPSED=$((END_TIME - START_TIME))
-
-      if [ -f "$OUTPUT_FILE" ] && [ -s "$OUTPUT_FILE" ]; then
-        DONE=$((DONE + 1))
-        echo "done (${ELAPSED}s)"
-      else
-        FAILED=$((FAILED + 1))
-        echo "FAILED (${ELAPSED}s)"
-      fi
+      DONE=$((DONE + 1))
+      echo "done (${ELAPSED}s)"
     done
   done
   echo ""
