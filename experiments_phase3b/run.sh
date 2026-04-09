@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Experiment runner for debt threshold test
-# Usage: ./experiments_debt/run.sh [experiment] [app] [max_run]
+# Usage: ./experiments_phase3b/run.sh [experiment] [app] [max_run]
 # Opus only. All arguments optional.
 
 unset ANTHROPIC_API_KEY
@@ -74,8 +74,8 @@ echo "========================================"
 echo ""
 
 for exp in $EXPERIMENTS; do
-  source "$ROOT/experiments_debt/$exp/config.sh"
-  PROMPT=$(cat "$ROOT/experiments_debt/$exp/prompt.md")
+  source "$ROOT/experiments_phase3b/$exp/config.sh"
+  PROMPT=$(cat "$ROOT/experiments_phase3b/$exp/prompt.md")
 
   echo "--- Experiment: $exp (type=$TYPE) ---"
 
@@ -85,7 +85,7 @@ for exp in $EXPERIMENTS; do
     APP_DIR="$ROOT/$app"
 
     for run in $(seq 1 "$MAX_RUN"); do
-      OUTPUT_FILE="$ROOT/experiments_debt/$exp/runs/${app}-${MODEL}-${run}.md"
+      OUTPUT_FILE="$ROOT/experiments_phase3b/$exp/runs/${app}-${MODEL}-${run}.md"
       RUN_LABEL="$exp/$app/$MODEL/run-$run"
 
       CURRENT=$((CURRENT + 1))

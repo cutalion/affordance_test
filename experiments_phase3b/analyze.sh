@@ -12,9 +12,9 @@ echo "=== Debt Threshold Experiment Analyzer ==="
 echo ""
 
 for exp in $EXPERIMENTS; do
-  ANALYSIS_FILE="$ROOT/experiments_debt/$exp/analysis.md"
-  PROMPT_FILE="$ROOT/experiments_debt/$exp/prompt.md"
-  RUNS_DIR="$ROOT/experiments_debt/$exp/runs"
+  ANALYSIS_FILE="$ROOT/experiments_phase3b/$exp/analysis.md"
+  PROMPT_FILE="$ROOT/experiments_phase3b/$exp/prompt.md"
+  RUNS_DIR="$ROOT/experiments_phase3b/$exp/runs"
 
   RUN_COUNT=$(find "$RUNS_DIR" -name "*.md" 2>/dev/null | wc -l)
   if [ "$RUN_COUNT" -eq 0 ]; then

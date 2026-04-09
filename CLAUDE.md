@@ -18,7 +18,7 @@ Three parallel Rails 8.1 apps exploring how entity naming affects AI reasoning.
 
 ### Docs and Experiments
 - `experiments/` — Phase 1+2 experiment runner and results
-- `experiments_debt/` — Phase 3b experiment runner (6 experiments, 72 Opus-only runs)
+- `experiments_phase3b/` — Phase 3b experiment runner (6 experiments, 72 Opus-only runs)
 - `docs/superpowers/specs/` — Design specifications
 - `docs/superpowers/plans/` — Implementation plans
 
