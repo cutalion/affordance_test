@@ -1,149 +1,217 @@
-# Does Entity Naming Shape AI Agent Reasoning?
+# Do AI Coding Assistants Understand Your Architecture — Or Just Copy It?
 
-An experiment testing whether naming conventions in code act as affordances for AI agents — shaping how they understand, describe, and modify a codebase.
+An experiment in two parts, testing how code structure shapes AI agent behavior.
 
-## Key Findings
+**Part 1** found that entity naming ("Order" vs "Request") doesn't matter — AI reads structure,
+not semantics. **Part 2** found something more troubling: AI faithfully replicates whatever
+architectural patterns it finds, including bugs, god objects, and semantic mismatches — and
+it will never tell you anything is wrong.
 
-**Structure, not naming, drives AI behavior.**
+---
 
-We initially thought the entity name ("Order" vs "Request") was shaping AI design decisions. A third control app proved us wrong. When we gave the "Request" name to a codebase with Order's clean structure, the AI treated it identically to the Order app — never like the legacy Request app.
+## The Headline Results
 
-- **AI agents read structure, not semantic associations.** The word "Request" does not activate "invitation" or "negotiation" mental models. A clean 6-state Request app behaves identically to a clean 6-state Order app. The AI reads actual code — state definitions, event names, service patterns — not the connotations of the entity name. (All 7 experiments, 42 control runs, 0 exceptions)
+### The AI will never tell you your code has a problem
 
-- **Existing code is the strongest design constraint.** When the codebase has a `decline` event, the AI reuses it. When it has 8 services, the AI creates more. When it has unusual state names, the AI comments on them. Your codebase is a style guide that agents follow with high fidelity. (Experiments 03, 05, 07)
+We asked Claude Opus to describe 5 different codebases, 3 times each. One codebase has a
+model called `Request` that simultaneously serves as an invitation, a booking, a fulfillment
+tracker, and an announcement response. The AI described this god object as "the core
+transactional entity" with the same confident, professional tone it used for a cleanly
+separated four-model architecture. Across 30 descriptive runs, **zero mentioned any design
+problem.** ([E01 analysis](experiments_phase3b/e01-describe-system/analysis.md))
 
-- **Specific prompts neutralize structural differences.** When asked to "book 5 sessions at once," all three apps produced structurally identical solutions. Well-scoped prompts override both naming and structural effects. (Experiments 04, 06)
+### Clean architecture produced more bugs than messy code
 
-- **Model choice remains the strongest variable.** Opus vs Sonnet consistently produced larger differences than any codebase characteristic across every experiment.
+In our counter-proposal experiment, the clean-architecture apps delegate to sub-services
+inside transactions. This delegation pattern contains a subtle bug (`return` after
+`raise ActiveRecord::Rollback` — the return never executes, and the method silently continues
+to the success path). The AI copied this bug into **all 6 clean-app runs**. The messy apps
+create payments inline — a simpler pattern with no such bug. **All 6 debt-app runs were
+bug-free.** Most Rails developers would not catch this in review.
+([E03 analysis](experiments_phase3b/e03-counter-proposal/analysis.md))
 
-### How we got here
+```ruby
+# This bug appeared in 7 AI-generated runs. It already existed in the source code.
+Request.transaction do
+  order_result = Orders::CreateService.call(request: @request)
+  unless order_result[:success]
+    raise ActiveRecord::Rollback    # rolls back the transaction
+    return error("Failed to create order")  # UNREACHABLE — never executes
+  end
+end
+# execution falls through here — sends success notification with rolled-back data
+```
 
-Our initial 2-app experiment (Order vs Request, 86 runs) suggested naming matters. Three independent judges identified the confound: naming and structural complexity were entangled. We built a third app — "Request" naming with Order's clean structure — and ran 42 more experiments. Three new judges, reviewing all 128 runs blind, unanimously concluded: structure drives the effects, not naming.
+### God objects have gravitational pull
 
-Start with **[experiments/REPORT.md](experiments/REPORT.md)** for the full cross-experiment synthesis, or browse individual experiment summaries in each experiment directory.
+When asked to build recurring bookings, clean-architecture apps created a proper
+`RecurringBooking` model in 6/6 runs. Debt apps avoided the new model in 2/6 runs, choosing
+instead to add a `recurring_group_id` column to the existing god object — the kind of
+shortcut that deepens existing debt. Each AI-generated feature that piles onto the god object
+makes the *next* AI-generated feature more likely to do the same.
+([E05 analysis](experiments_phase3b/e05-recurring-bookings/analysis.md))
 
-## The Setup
+### Same prompt, same codebase, 3 different architectures = a problem
 
-Three Rails 8.1 booking apps manage the same domain — clients booking providers for services:
+Run the same prompt 3 times on a clean codebase: you get the same diff. Run it on a messy
+codebase: you get different approaches each time. In E06, a clean app produced near-identical
+code across 3 runs (same service, same tests, zero migrations). The debt app diverged on
+column choices, validation, and routing. **Cross-run variance is a measurable signal of
+architectural ambiguity** — and a practical diagnostic you can use today.
+([E06 analysis](experiments_phase3b/e06-withdraw-response/analysis.md))
 
-| | **App A: Order** | **App B: Request** | **App C: Request Clean** |
-|---|---|---|---|
-| Central entity | `Order` | `Request` | `Request` |
-| States | 6 clean: pending, confirmed, in_progress, completed, canceled, rejected | 9 legacy: created, created_accepted, accepted, started, fulfilled, declined, missed, canceled, rejected | 6 clean (same as Order) |
-| Services | 6 | 8 (extra: CreateAcceptedService, DeclineService) | 6 (same as Order) |
-| Extra endpoint | No | Yes (`POST /api/requests/direct`) | No |
-| Purpose | Baseline | Legacy codebase | **Control: isolates naming from structure** |
+---
 
-App C is the decisive test. It shares App B's entity name ("Request") but App A's clean structure. If naming matters, C should behave like B. If structure matters, C should behave like A. **Result: C always behaves like A.**
+## How It Works
 
-The Request app is inspired by a real production codebase (a babysitting/childcare marketplace). The original flow was: a parent sends a **request** to a specific sitter, essentially inviting them — the sitter can *accept* or *decline*, and if they don't respond, the request is *missed*. Over time the product evolved into a straightforward booking system (pick a time, get matched with a provider, pay), but the entity stayed `Request` and the invitation-era states (`created_accepted`, `declined`, `missed`) were never cleaned up. The state `created_accepted` is a relic of a two-phase flow where the sitter could be pre-assigned before formally accepting — it no longer serves a distinct purpose but remains in the schema.
+### Part 1: Does Naming Matter? (3 apps, 128 runs)
 
-The Order app represents what the Request app *would look like* if someone had refactored the naming to match the current business reality: a clean booking/order pipeline with states that read as a straightforward lifecycle. The Request Clean app proves this refactoring would not change AI behavior — the clean structure alone is what matters.
+We built two identical Rails booking apps — one with the central entity named "Order" (clean
+states) and one named "Request" (legacy invitation-era states from a real production
+codebase). Initial results suggested naming matters. Then we built a third app: "Request"
+name with Order's clean structure.
 
-## The Experiments
+**Result:** The control app always behaved like Order, never like legacy Request. **Structure
+drives AI behavior, not naming.** Three independent judges confirmed unanimously.
 
-7 experiments, each run 3 times per model (Opus, Sonnet) per app = 18 runs per experiment, 128 total across two phases.
+Full report: **[experiments/REPORT.md](experiments/REPORT.md)**
 
-| # | Experiment | Type | Prompt (abbreviated) |
-|---|---|---|---|
-| 01 | Describe System | readonly | "Describe what this system does" |
-| 02 | Rebook Feature | code | "Add re-booking with the same provider" |
-| 03 | Counter-Proposal | code | "Provider can propose a different time" |
-| 04 | Bulk Booking | code | "Book 5 sessions at once" |
-| 05 | Auto-Assignment | code | "Auto-assign highest-rated provider" |
-| 06 | Cancellation Fee | code | "Charge 50% if canceled <24h before" |
-| 07 | Happy Path | readonly | "Walk through the happy path step by step" |
+### Part 2: At What Point Does Debt Break Things? (5 apps, 72 runs)
 
-Each experiment was run via `claude -p` with the app directory as working context. CLAUDE.md was hidden during runs to prevent contamination. Code experiments created git branches with the resulting diffs.
+We built 5 apps simulating a babysitting marketplace evolving through stages of complexity,
+with two tracks — one that refactors properly and one that accumulates technical debt:
+
+| App | Stage | What happened |
+|-----|-------|--------------|
+| **app_alpha** | MVP | Request = invitation. The name fits perfectly. |
+| **app_bravo** | Stage 1 Clean | Someone extracted an Order model. Clean separation. |
+| **app_charlie** | Stage 1 Debt | Nobody refactored. Request absorbs the booking lifecycle. |
+| **app_delta** | Stage 2 Clean | Announcements added. Response gets its own model. |
+| **app_echo** | Stage 2 Debt | Announcements added. Responses ARE Requests. God object. |
+
+We ran 6 experiments — 2 descriptive ("describe this system," "walk the happy path") and
+4 code-generation ("add counter-proposals," "add cancellation fees," "add recurring bookings,"
+"withdraw an announcement response"). Each prompt ran 3 times per app, blind, with fresh
+databases.
+
+Full report: **[experiments_phase3b/report-round3.md](experiments_phase3b/report-round3.md)**
+
+---
+
+## Key Findings (Part 2)
+
+| # | Finding | Strength | Surprise level |
+|---|---------|----------|---------------|
+| 1 | AI describes debt as intentional design, never flags problems | Strong | Expected |
+| 2 | Clean codebases produce identical AI output across runs; debt produces variance | Strong | Moderate |
+| 3 | AI copies existing patterns including bugs — 7/7 bug instances in clean apps | Strong | High |
+| 4 | Debt codebases pull AI toward piling onto existing models | Moderate | Expected |
+| 5 | Clean architecture's indirection creates *more* surface for subtle bugs | Moderate | High |
+| 6 | Naming mismatches propagate into error messages, tests, comments | Moderate | Expected |
+| 7 | The threshold is model separation, not debt volume | Moderate | Moderate |
+
+### The Practical Takeaways
+
+1. **Don't rely on AI to find refactoring targets.** It will never tell you a model is
+   overloaded.
+2. **Review AI PRs for architecture, not just correctness.** Tests passing doesn't mean the
+   right model was chosen.
+3. **Use the 3-run convergence test.** Run the same prompt 3 times. Divergent architectures
+   mean the codebase is ambiguous.
+4. **Document your error-handling patterns.** The AI copies whatever transaction pattern it
+   finds — make sure what it finds is correct.
+5. **Refactor before structural features, not before simple ones.** Adding a state to a god
+   object works fine. Creating a new domain concept on one doesn't.
+
+---
 
 ## What Is an Affordance?
 
-An [**affordance**](https://en.wikipedia.org/wiki/Affordance) is a property of an object or environment that suggests to a person exactly how they can interact with it. Simply put, it's an intuitive "cue" about a thing's purpose, embedded in its shape or design.
+An [**affordance**](https://en.wikipedia.org/wiki/Affordance) is a property of an object that
+suggests how to interact with it. A door handle invites pulling; a flat plate invites pushing.
+Good design relies on clear affordances. A "Norman Door" — a pull handle on a push door — is
+the classic example of bad affordance.
 
-The term is most commonly used in cognitive psychology, industrial design, and user interface (UI/UX) design. This experiment tests whether the same concept applies to code: does naming an entity "Request" (with invitation-era vocabulary) afford different design decisions than naming it "Order" (with clean transactional vocabulary) — even when the underlying system is functionally identical?
+This experiment tests whether the same concept applies to code: does naming an entity
+"Request" (with invitation-era vocabulary) afford different AI design decisions than naming it
+"Order" (with transactional vocabulary)? Part 1 says no — AI reads structure, not
+connotations. Part 2 asks the deeper question: what structural signals *do* AI agents read,
+and at what point does accumulated debt corrupt those signals?
 
-### Physical World Examples
-* **A light switch button:** Its raised shape suggests that it is meant to be pressed.
-* **A chair:** Its flat, horizontal surface at knee level "invites" you to sit on it.
-* **A doorknob:** A round knob suggests it needs to be grasped and turned, while a flat vertical handle indicates it should be pulled.
+### Further Reading
 
-### Digital Environment Examples (UI/UX)
-* **Blue underlined text:** A historically established affordance indicating a clickable link.
-* **A 3D button on a website:** A gradient or drop shadow creates an illusion of depth, inviting the user to click.
-* **An empty field with a blinking cursor:** Gives a clear signal that text can be typed into it.
+* [Affordance](https://en.wikipedia.org/wiki/Affordance) — Wikipedia overview
+* [What Does OO Afford?](https://sandimetz.com/blog/2018/21/what-does-oo-afford) — Sandi Metz
+* [Affordances in Programming Languages](https://www.youtube.com/watch?v=fjH1DCa56Co) — Randy Coulman, RubyConf 2014
 
-### Where the Term Originated
-1. **James Gibson (Psychologist):** First coined the term in the late 1970s. For him, an affordance meant *all* physical action possibilities an environment offers a human (or animal), regardless of whether the individual actually perceives them. For example, a rock has the affordance of "being thrown" or "serving as a hammer."
-2. **Don Norman (Designer):** In his 1988 book *The Design of Everyday Things*, Norman adapted the term for the design world. He shifted the focus to **perceived affordance** — meaning the action possibilities that are *readily apparent* to the user at first glance.
+---
 
-### Why It Matters
-Good design relies on clear affordances. If a person needs an explanatory sign to figure out how to open a door (push vs. pull) or how to submit data in an application, it means the affordances are poorly designed.
+## Methodology & Skepticism
 
-A classic example of bad affordance is the so-called "Norman Door." These are doors equipped with vertical pull handles (which naturally invite you to pull them), but they actually open by pushing. Because of the conflict between the appearance (the affordance) and the actual physical mechanism, people constantly push when they should pull, or vice versa.
+This is an exploratory study, not a controlled experiment. The adversarial judge review
+([judge-2-skeptic.md](experiments_phase3b/judge-2-skeptic.md)) identifies real limitations:
 
-## Further Reading on Affordances in Code
+- **n=3 per condition** is too small for statistical significance
+- **Opus judges Opus** — shared biases are possible
+- **Debt is confounded with complexity** — clean apps have more code and more models
+- **Single model, single domain** — may not generalize
+- **No human baseline** — we don't know if humans would show the same effects
 
-* [Affordance](https://en.wikipedia.org/wiki/Affordance) -- Wikipedia overview of the concept from Gibson through Norman
-* [What Does OO Afford?](https://sandimetz.com/blog/2018/21/what-does-oo-afford) -- Sandi Metz on how object-oriented programming affords anthropomorphic, polymorphic, loosely-coupled designs
-* [Some Quick Thoughts on Input Validation](https://avdi.codes/some-quick-thoughts-on-input-validation/) -- Avdi Grimm on how code has affordances and validation DSLs can break them
-* [Affordances in Programming Languages](https://www.youtube.com/watch?v=fjH1DCa56Co) -- Randy Coulman's RubyConf 2014 talk, directly on the topic
-* [Affordances in Code Design](https://mozaicworks.com/blog/affordances-in-code-design) -- Alex Bolboaca applying Don Norman's affordance concept to code structure
-* [The Role of Affordance in Software Design](https://hackernoon.com/affordance-in-software-design-12cc0d9d2721) -- Perceived affordance as a criterion for API and code effectiveness
+The strongest findings (pattern replication, convergence signal, zero architectural critique)
+are robust to these concerns. The subtler findings (god-object gravity, binary threshold) are
+directional hypotheses that would benefit from larger sample sizes.
 
-## Development
+We ran the experiment twice. Round 2 had schema contamination (prior experiment branches left
+artifacts in the databases). Round 3 fixed this with fresh databases per run. All findings
+reproduced, confirming they are not artifacts.
 
-### Repository Structure
+---
+
+## Repository Structure
 
 ```
-affordance_order/          # Rails app — "Order" with clean states
-affordance_request/        # Rails app — "Request" with legacy states
-affordance_request_clean/  # Rails app — "Request" name + Order's clean structure (control)
-experiments/
-  run.sh                   # Automated experiment runner
-  analyze.sh               # Blind analysis + summary generator
-  REPORT.md                # Cross-experiment report with judge synthesis
-  judge-{1,2,3}.md         # Phase 1 judge reports (2-app, debated naming vs structure)
-  judge-{a,b,c}.md         # Phase 2 judge reports (3-app, unanimously confirmed structure)
-  01-describe-system/      # Each experiment has:
-    prompt.md              #   The prompt given to the AI
-    config.sh              #   Type (readonly/code)
-    runs/                  #   Raw AI outputs (18 per experiment)
-    analysis.md            #   Blind comparison (App A vs App B vs App C)
-    summary.md             #   Unblinded summary with conclusions
-  02-rebook-feature/
-  ...
-  07-happy-path/
-docs/superpowers/
-  specs/                   # Design specifications
-  plans/                   # Implementation plans
+affordance_order/                # Part 1: Rails app — "Order" with clean states
+affordance_request/              # Part 1: Rails app — "Request" with legacy states
+affordance_request_clean/        # Part 1: Rails app — "Request" name + clean structure (control)
+experiments/                     # Part 1: 7 experiments, 128 runs, 6 judges
+  REPORT.md                      #   Cross-experiment synthesis
+app_alpha/                       # Part 2: Stage 0 MVP (invitation)
+app_bravo/                       # Part 2: Stage 1 Clean (Request + Order)
+app_charlie/                     # Part 2: Stage 1 Debt (Request absorbs Order)
+app_delta/                       # Part 2: Stage 2 Clean (+ Announcement + Response)
+app_echo/                        # Part 2: Stage 2 Debt (Request is god object)
+experiments_phase3b/             # Part 2: 6 experiments, 72 runs, 3 judges
+  report-round3.md               #   Main report (start here)
+  judge-{1,2,3}-*.md             #   Independent judge reviews
+  e01-describe-system/           #   Each experiment has prompt.md, analysis.md, runs/
+  e02-happy-path/
+  e03-counter-proposal/
+  e04-cancellation-fee/
+  e05-recurring-bookings/
+  e06-withdraw-response/
+docs/superpowers/specs/          # Design specifications
 ```
 
-### Tech Stack
+## Tech Stack
 
 - Ruby 3.3.5, Rails 8.1.3
 - SQLite, AASM (state machines), RSpec + FactoryBot
-- Claude Opus 4.6 and Sonnet 4.6 (via `claude -p`)
+- Claude Opus 4.6 via `claude -p` (automated, single-shot)
 
-### Running the Apps
+## Running
 
 ```bash
+# Part 1 apps
 cd affordance_order && bundle install && bin/rails db:create db:migrate && bundle exec rspec
 cd affordance_request && bundle install && bin/rails db:create db:migrate && bundle exec rspec
 cd affordance_request_clean && bundle install && bin/rails db:create db:migrate && bundle exec rspec
-```
 
-### Re-running Experiments
+# Part 2 apps
+cd app_alpha && bundle install && bin/rails db:create db:migrate && bundle exec rspec
+# ... same for app_bravo, app_charlie, app_delta, app_echo
 
-```bash
-# Run all experiments (skips existing outputs)
-./experiments/run.sh
-
-# Run a single experiment
-./experiments/run.sh 04-bulk-booking
-
-# Run specific experiment/model/app/count
-./experiments/run.sh 04-bulk-booking sonnet order 1
-
-# Generate analyses and summaries
-./experiments/analyze.sh
+# Re-run experiments
+./experiments/run.sh                    # Part 1
+./experiments_phase3b/run.sh            # Part 2
+./experiments_phase3b/analyze.sh        # Generate blind analyses
 ```

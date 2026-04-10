@@ -2,153 +2,152 @@
 
 > Blind comparison — app identities not revealed to analyzer.
 
-## Analysis: Happy Path Responses Across 5 Apps
+# Cross-App Analysis: Happy Path Experiment
+
+## 1. Language/Framing
+
+**App A**: All 3 runs describe Request as a "service booking" or "appointment" — simple, invitation-like language. The framing is clean: register, book, accept, done. No mention of payment processing, work execution, or fulfillment. The entity "fits" its name perfectly — a request that gets accepted or not.
+
+**App B**: Runs 1-2 correctly identify Order as the "main entity," but Run 3 pivots and calls Request the main entity, walking through the entire Request→Order→Payment chain. The framing is marketplace/fulfillment-oriented. All runs describe a multi-entity lifecycle clearly.
+
+**App C**: All 3 runs frame Request as carrying the full service lifecycle — accept, start, complete, charge. The language is naturally "request = work order" without any friction or hedging. Notably, none of the runs question whether a "Request" should handle payment capture and work execution.
+
+**App D**: All 3 runs identify Order as the main entity and describe a clean Request→Order handoff. The language is the most architecturally precise of all apps — "two-sided marketplace where Clients book Providers through requests, which convert into paid orders" (Run 3).
+
+**App E**: All 3 runs frame Request as carrying the full lifecycle (same as App C). Run 3 is the only response across all 45 runs (5 apps × 3 runs × 3 dimensions... well, 15 runs here) that mentions Announcements: "There's also an alternative entry point via Announcements." This is a significant signal.
+
+**Pattern**: The AI mirrors back whatever the code tells it. When a single model absorbs lifecycle responsibilities (C, E), the AI describes that as natural. It never flags the semantic mismatch of a "Request" capturing payment and tracking work execution.
 
 ---
 
-### 1. Language/Framing
+## 2. Architectural Choices
 
-**App A**: All 3 runs describe a simple invitation-style interaction. Language is minimal — "the provider reviews and accepts." Run 3 adds a brief mention of actual service delivery ("the provider shows up") but acknowledges this is outside the modeled states. The AI consistently frames Request as a **matching/invitation** mechanism, not a booking.
+| App | Models Described | State Chain (Happy Path) | Payment Model |
+|-----|-----------------|-------------------------|---------------|
+| A | Request only | pending → accepted (terminal) | None |
+| B | Request + Order + Payment | Request: pending→accepted; Order: pending→confirmed→in_progress→completed | Separate Payment entity |
+| C | Request + Payment | pending→accepted→in_progress→completed | Payment created at accept |
+| D | Request + Order + Payment | Request: pending→accepted; Order: pending→confirmed→in_progress→completed | Separate Payment entity |
+| E | Request + Payment (+Announcement in Run 3) | pending→accepted→in_progress→completed | Payment created at accept |
 
-**App B**: All 3 runs frame the system as a **two-phase lifecycle** — "Request then Order." The AI clearly separates the matching phase (Request) from the fulfillment phase (Order). Run 1 even uses the header "Phase 1 / Phase 2 / Phase 3." The language treats Request and Order as distinct concerns with distinct responsibilities.
+**Key split**: Apps B and D have a clean architectural boundary — Request handles the "ask," Order handles the "do." Apps C and E collapse this into one entity. App A doesn't need the distinction at all (it's just an invitation).
 
-**App C**: All 3 runs describe a **single entity spanning the full booking lifecycle** — from creation through payment and reviews. The language is uniform: "the request is started," "the request is completed." No second entity is introduced. The AI accepts the Request-as-everything framing without question.
-
-**App D**: All 3 runs identify **Order as the main entity**, not Request. The AI frames Request as an acquisition channel leading to Order. All runs also surface the Announcement pathway as an alternative acquisition flow. Language emphasizes convergence: "two ways an Order can originate, then they converge."
-
-**App E**: All 3 runs identify **Request as the main entity** and describe it spanning the full lifecycle (pending → completed), same as App C. Announcements are mentioned but only in passing ("optionally linked to an announcement"). The AI treats the Request as the single throughline.
-
-**Pattern**: The AI mirrors whatever framing the codebase implies. When a single model owns the lifecycle, the AI describes a single entity journey. When models are separated, the AI separates its narrative. No run in any app challenges the architecture it finds.
-
----
-
-### 2. Architectural Choices
-
-| Dimension | App A | App B | App C | App D | App E |
-|-----------|-------|-------|-------|-------|-------|
-| Main entity | Request | Order (with Request as precursor) | Request | Order (with Request as precursor) | Request |
-| Models surfaced | Request, Client, Provider | Request, Order, Payment, Review, Card | Request, Payment, Review, Card | Request, Order, Announcement, Response, Payment, Review, Card | Request, Announcement, Payment, Review |
-| State count (happy) | 2 (pending, accepted) | Request: 2, Order: 4, Payment: 3 | 4 (pending→accepted→in_progress→completed) | Request: 2, Order: 4, Payment: 3 | 4 (pending→accepted→in_progress→completed) |
-| Payment modeled? | No | Yes (separate model) | Yes (separate model) | Yes (separate model) | Yes (separate model) |
-| Reviews modeled? | No | Yes | Yes | Yes | Yes |
-
-**Pattern**: Apps B and D both decompose the lifecycle across Request + Order, resulting in cleaner per-entity state machines (2 states each for Request, 4 for Order). Apps C and E collapse everything onto Request, resulting in a single 4+ state machine that handles matching, fulfillment, and payment. App A is the simplest — only the matching phase exists.
+**Confidence**: High. All runs within each app are highly consistent on architecture.
 
 ---
 
-### 3. Model Placement
+## 3. Model Placement
 
-This experiment asks a descriptive question ("what is the happy path?"), so the AI isn't placing new features — it's identifying which model owns which concern. The key finding:
+This was a "describe what exists" prompt, not a "build something new" prompt, so model placement is about whether the AI correctly identifies where behavior lives.
 
-- **App B**: AI correctly identifies the Request/Order boundary. Request owns matching (pending→accepted), Order owns fulfillment (pending→confirmed→in_progress→completed). All 3 runs are consistent.
-- **App D**: Same clean separation as B, plus the AI correctly identifies that both Request and Announcement/Response are acquisition channels that feed into Order. All 3 runs converge on this.
-- **App C**: AI places the entire lifecycle on Request without hesitation. Payment hold happens "on accept," payment charge happens "on complete" — all on the Request model.
-- **App E**: Same as C — everything on Request. The Announcement is mentioned but the AI doesn't surface that Responses *are* Requests or that AcceptService branches on context. The god-object complexity is invisible in the happy path description.
+- **App A**: Correct. AcceptService on Request, no overreach.
+- **App B**: Runs 1-2 correct. **Run 3 is wrong** — it describes Order creation as a separate client-initiated `POST /api/orders` call, when the code actually auto-creates the Order inside `Requests::AcceptService`. This is a significant misread.
+- **App C**: Correct. All runs accurately describe AcceptService creating payment and capturing holds on the Request.
+- **App D**: Correct across all runs. The Request→Order handoff via AcceptService is consistently described.
+- **App E**: Mostly correct. Run 3 names the internal method `accept_invitation!` which is a notable detail — it suggests the AI is reading deeply into the service code. The Announcement mention is also correct per the codebase.
 
-**Confidence**: High. The AI faithfully reflects each codebase's architecture; the question is whether it *should* have flagged architectural concerns in C and E. It didn't.
-
----
-
-### 4. State Reuse vs. Invention
-
-All runs across all apps are **strictly descriptive** — the AI reports the states it finds in the AASM definitions without inventing new ones. No run introduces a state that doesn't exist in the codebase.
-
-- App A: pending, accepted (plus declined, expired in unhappy paths) — **correct**
-- App B: Request (pending, accepted); Order (pending, confirmed, in_progress, completed) — **correct**
-- App C: pending, accepted, in_progress, completed — **correct**
-- App D: Same as B plus Announcement (draft, published, closed) and Response (pending, selected, rejected) — **correct**
-- App E: pending, accepted, in_progress, completed — **correct**
-
-**Notable**: No run invents transitional or synthetic states. The AI reads the state machine and reports it faithfully. This is expected for a descriptive prompt.
+**Outlier**: App B Run 3 invents a separate order creation step that doesn't exist. This is the most significant factual error across all 15 runs.
 
 ---
 
-### 5. Correctness
+## 4. State Reuse vs. Invention
 
-**App A**: All runs correct. Run 3 adds a soft "Step 3: service is delivered" which is reasonable interpretation but not modeled in code. Minor embellishment, not an error.
+All responses faithfully report existing states. No AI run invents new states or proposes additions. This is expected for a "describe" prompt but worth confirming.
 
-**App B**: 
-- Run 1: Correctly sequences Request→Order→Payment→Review. States and transitions are accurate.
-- Run 2: States "Accepting a Request creates an Order" — this is a reasonable inference from `has_one :order` but the actual creation mechanism matters. No factual error.
-- Run 3: Says "A Payment record is created (status: pending). The day before the scheduled time, the payment hold is placed" — the "day before" is **invented detail** not derivable from the code. Minor speculation.
+| App | States Reported | Accuracy |
+|-----|----------------|----------|
+| A | pending, accepted, declined, expired | Correct |
+| B | Request: pending, accepted, declined, expired; Order: pending, confirmed, in_progress, completed, canceled, rejected | Correct |
+| C | pending, accepted, in_progress, completed, declined, expired, canceled, rejected | Correct |
+| D | Same as B + (Announcement/Response states not mentioned) | Partially correct — omits Announcement/Response |
+| E | Same as C + mentions Announcements in Run 3 only | Partially correct |
 
-**App C**:
-- Run 1: Says payment is held "at accept" — needs verification against AcceptService. If AcceptService captures payment (per CLAUDE.md hint about charlie), this is accurate.
-- Runs 2-3: Consistent with Run 1. All correct given the codebase structure.
-
-**App D**: 
-- All runs correctly identify the dual acquisition path (Request vs Announcement→Response).
-- Run 1 provides the most detailed Announcement flow and is accurate.
-- No errors detected.
-
-**App E**:
-- All runs describe the happy path correctly.
-- **Key omission**: None of the 3 runs surface that AcceptService does different things depending on context (announcement vs direct request). The happy path description doesn't reveal the god-object complexity lurking underneath.
-- Run 1 mentions "optionally linked to an announcement" but doesn't explore what that changes.
-
-**Confidence**: High for correctness of stated facts. The one invented detail is App B Run 3's "day before" timing.
+**Notable**: App D never mentions Announcement or Response models in any run, despite them existing in the codebase. The prompt asked about "the main entity," which gives the AI license to focus, but it's a contrast with App E Run 3 which does surface the Announcement pathway. This suggests the clean separation in App D makes secondary entities feel truly separate, while the god-object in App E leaks cross-cutting concerns into the main entity's description.
 
 ---
 
-### 6. Scope
+## 5. Correctness
 
-| App | Scope adherence | Notes |
-|-----|----------------|-------|
-| A | Tight | 2-step happy path, brief unhappy path summary. Run 3 slightly expansive with "service is delivered" step. |
-| B | Moderate | All runs include Payment and Review lifecycle. Run 1 adds ASCII flow diagram. Justified — these are integral to the happy path. |
-| C | Moderate | All runs include Payment and Review. Same justification as B. |
-| D | Slightly broad | All runs describe both the Request path and Announcement path. Run 1 provides full detail on both. This is arguably on-task since both are legitimate happy paths. |
-| E | Moderate | Similar to C but with brief Announcement mentions. |
+| App | Run | Errors |
+|-----|-----|--------|
+| A | 1-3 | None. All accurate. Run 1 notes "no automated expiration job is wired up yet" — good observational detail. |
+| B | 1 | Clean |
+| B | 2 | Clean |
+| B | 3 | **Error**: Describes Order creation as a separate client API call (`POST /api/orders`), not as automatic side-effect of accept. Misattributes agency. |
+| C | 1-3 | None. Consistently accurate. |
+| D | 1-3 | None. All accurate on the Request→Order flow. |
+| E | 1-2 | Clean |
+| E | 3 | Mentions `accept_invitation!` method name — correct but reveals internal naming that hints at the domain tension. Also correctly surfaces Announcement as alternative entry. |
 
-**Pattern**: No app produces genuinely off-topic content. The scope naturally scales with codebase complexity — more models in the codebase means more models in the response. No run adds unrequested features or speculative extensions.
-
----
-
-### Pairwise Comparisons
-
-**A vs B**: A describes a simple matching protocol (2 states). B describes A's matching protocol *plus* a full fulfillment lifecycle via Order. The Request in both apps behaves identically (pending→accepted), but B's system continues the journey through Order.
-
-**A vs C**: Both use Request as the main entity, but C's Request does everything A's Request does *plus* the entire fulfillment lifecycle (in_progress, completed, payment). The AI doesn't note that "accept" means very different things in each system (A: invitation accepted; C: accept + payment hold).
-
-**B vs D**: D is B plus the Announcement/Response acquisition channel. The Order lifecycle is identical. All D runs correctly identify Order as the main entity, same as B. The Announcement pathway is described as an alternative, not a complication.
-
-**B vs C**: This is the most revealing comparison. Both systems model the same real-world process (matching → fulfillment → payment → review), but:
-- B splits it across Request (2 states) and Order (4 states) — clean separation of concerns
-- C collapses it into Request (4+ states) — single entity owns everything
-
-The AI describes both architectures with equal confidence and clarity. It does not flag C's design as problematic or unusual.
-
-**C vs E**: Nearly identical responses. Both describe Request spanning the full lifecycle with the same states. The key difference is E mentions Announcements peripherally, but the AI doesn't explore how Announcements interact with the Request model. The god-object nature of E's Request is invisible in happy-path analysis.
-
-**D vs E**: This is the most architecturally divergent pair, yet they model the same domain. D cleanly separates concerns (4 models, each with small state machines). E collapses them (Request absorbs Response behavior, AcceptService branches on context). The AI describes D with clear architectural boundaries and E as a simple linear flow — the structural complexity difference is enormous but the happy-path descriptions feel equally clean.
+**Error rate**: 1 significant error out of 15 runs (6.7%), occurring in App B Run 3. The error is specifically about the *boundary* between Request and Order — the AI got confused about which actor triggers Order creation. This is the exact kind of architectural seam that multi-entity systems create.
 
 ---
 
-### Notable Outliers
+## 6. Scope
 
-1. **App B Run 3** invents "the day before the scheduled time" for payment hold timing — the only factual embellishment across all 15 runs.
+**App A**: Tightly scoped. No run adds unrequested features. The responses are the shortest and most focused.
 
-2. **App D Run 1** is the most thorough single response — it details both acquisition paths with full state flows. Other D runs relegate Announcements to a footnote.
+**App B**: Mostly scoped. Run 3 over-describes by walking through the entire chain from Request through Review, arguably going broader than "main entity."
 
-3. **App A Run 3** uniquely adds a "Step 3: service is delivered" that goes beyond the modeled states, acknowledging the gap between the state machine and the real-world process.
+**App C**: Well scoped. All runs include Payment lifecycle as integral to the Request happy path, which is appropriate since the code couples them.
 
-4. **App E** across all runs fails to surface the AcceptService branching behavior — the most architecturally significant hidden complexity in the experiment, completely invisible to happy-path analysis.
+**App D**: Well scoped but omits secondary entities entirely. No run mentions Announcements or Responses.
+
+**App E**: Run 3 adds the Announcement mention, which is arguably out of scope for "main entity happy path" but reveals real architectural coupling.
+
+**Pattern**: Simpler apps (A) produce tighter responses. God-object apps (E) leak adjacent concerns. Clean multi-entity apps (B, D) occasionally confuse boundaries.
 
 ---
 
-### Confidence Levels
+## Pairwise Comparisons
 
-| Dimension | Confidence | Rationale |
+**A vs. C vs. E** (all named "Request", increasing complexity):
+- A's Request is a true invitation — 2 states, no payment. AI describes it cleanly.
+- C's Request absorbs the full lifecycle — AI describes this without friction, as if a "Request" doing payment capture is natural.
+- E's Request is the same as C but also entangled with Announcements — Run 3 leaks this.
+- **Finding**: The AI never questions the semantic overloading. "Request" meaning "invitation" (A) vs. "Request" meaning "work order with payment" (C/E) produces no commentary about naming mismatch.
+
+**B vs. D** (both have Request + Order, increasing complexity):
+- Nearly identical descriptions across all runs. Both correctly identify the Request→Order handoff.
+- D's extra entities (Announcement, Response) are invisible in the happy path descriptions — clean separation works.
+- B has the one factual error (Run 3 misplacing Order creation).
+- **Finding**: Adding more entities (D) doesn't degrade accuracy when architecture is clean. The boundary confusion in B suggests even clean multi-entity systems can trip the AI at the seam.
+
+**C vs. E** (both god-objects, different complexity):
+- Nearly identical happy paths described. Both: pending→accepted→in_progress→completed.
+- E Run 3 is the only one that surfaces the Announcement alternative pathway.
+- **Finding**: The god-object pattern produces consistent (if uncritical) descriptions. The AI adapts to whatever the code says without pushback.
+
+**B vs. C** (same complexity level, clean vs. debt):
+- B describes two distinct lifecycles with a clear handoff point.
+- C describes one lifecycle with payment as a side-effect.
+- Both are "correct" relative to their codebase — the AI doesn't prefer one architecture.
+- **Finding**: The AI is a mirror, not a critic. It will accurately describe either pattern without noting tradeoffs.
+
+---
+
+## Confidence Levels
+
+| Dimension | Confidence | Reasoning |
 |-----------|-----------|-----------|
-| Language/framing | **High** | 15 runs, consistent patterns within apps, clear divergences between apps |
-| Architectural choices | **High** | AI faithfully mirrors each codebase's structure |
-| Model placement | **High** | Descriptive task, AI reports what it finds |
-| State reuse vs invention | **High** | No invention in any run |
-| Correctness | **High** | One minor invented detail (B-R3), otherwise accurate |
-| Scope | **High** | All responses appropriately scoped |
+| Language/framing | **High** | 15 runs, consistent patterns within apps, clear divergence between apps |
+| Architecture | **High** | All runs agree on entity boundaries within each app |
+| Model placement | **High** | Only 1 error in 15 runs |
+| State reuse | **High** | No invention anywhere |
+| Correctness | **High** | One clear error, easily identified |
+| Scope | **Medium** | Scope judgments are somewhat subjective (is mentioning Announcements in E out of scope or insightful?) |
 
 ---
 
-### Bottom Line
+## Notable Outliers
 
-The AI acts as a faithful mirror of whatever architecture it encounters — it describes single-entity lifecycles and multi-entity decompositions with equal fluency and equal confidence, never questioning whether a Request that handles matching, fulfillment, payment, and reviews *should* be a single entity. This means happy-path analysis is a poor tool for detecting architectural debt: Apps C and E produce responses that read as clean and simple as Apps B and D, despite collapsing multiple concerns into one model. The most striking evidence is the C-vs-E comparison, where a god object serving three purposes (direct requests, announcement responses, and full booking lifecycle) produces nearly identical happy-path descriptions to its clean counterpart — the branching complexity inside AcceptService is entirely invisible. **The happy path is the one angle from which debt looks exactly like clean design.**
+1. **App B Run 3**: Only run to misattribute Order creation to a separate API call. The multi-entity seam confused the AI.
+2. **App E Run 3**: Only run across all 15 to mention Announcements. The god-object's coupling made the alternative entry point visible during happy-path analysis.
+3. **App A Run 1**: Only run to editorialize about missing implementation ("no automated expiration job is wired up yet").
+4. **App D**: Zero mention of Announcements or Responses across all 3 runs, despite these models existing — clean separation made them invisible to the happy-path question.
+
+---
+
+## Bottom Line
+
+The AI faithfully mirrors whatever architecture it finds without questioning semantic fitness — a "Request" that captures payments and tracks work execution is described with the same confidence as a "Request" that's purely an invitation. The most important finding is the **asymmetry of leakage**: in clean multi-entity architectures (B, D), secondary entities stay invisible to the happy-path question (good encapsulation), but the one factual error (B Run 3) occurs precisely at the entity boundary seam; in god-object architectures (C, E), the AI never flags the overloaded semantics, but the entanglement does leak — App E Run 3 surfaces Announcements unprompted, revealing that coupling in code becomes coupling in explanation. Clean architecture contains complexity at the cost of occasional boundary confusion; debt architecture eliminates boundaries at the cost of conceptual bleed.

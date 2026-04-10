@@ -6,17 +6,21 @@
 
 ## Claude Output
 
-All 181 tests pass (including 16 new/updated ones). Here's what was implemented:
+All 182 tests pass. Here's a summary of the changes:
 
-**Model** (`app/models/response.rb`) — Added `withdrawn` state and `withdraw` event transitioning from `pending` → `withdrawn`.
+**Model** (`app/models/response.rb`): Added `withdrawn` state and `withdraw` event that transitions from `pending` to `withdrawn`.
 
-**Service** (`app/services/responses/withdraw_service.rb`) — New service that verifies the provider owns the response, transitions to withdrawn, and notifies the client.
+**Service** (`app/services/responses/withdraw_service.rb`): New service that:
+- Verifies the provider owns the response
+- Verifies the announcement is still published (no withdrawing after the client has closed it)
+- Transitions the response to `withdrawn`
+- Notifies the client about the withdrawal
 
-**Controller** (`app/controllers/api/responses_controller.rb`) — Added `withdraw` action using `current_provider!` for auth, following the same pattern as `select`/`reject`.
+**Controller** (`app/controllers/api/responses_controller.rb`): Added `withdraw` action that authenticates as a provider and delegates to the service.
 
-**Route** (`config/routes.rb`) — Added `PATCH /api/responses/:id/withdraw`.
+**Routes** (`config/routes.rb`): Added `PATCH /api/responses/:id/withdraw`.
 
-**Tests** — Model specs for the withdraw transition (including invalid transition guards), and service specs covering happy path, wrong provider, and already-selected/rejected responses.
+**Specs**: Added model specs for the `withdraw` state transition and a full service spec covering valid withdrawal, wrong provider, closed announcement, and already-withdrawn/selected responses.
 
 ---
 
@@ -75,10 +79,10 @@ index 1c2aad5..2bdceb1 100644
  end
 diff --git a/app_delta/app/services/responses/withdraw_service.rb b/app_delta/app/services/responses/withdraw_service.rb
 new file mode 100644
-index 0000000..99fe20c
+index 0000000..3611764
 --- /dev/null
 +++ b/app_delta/app/services/responses/withdraw_service.rb
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,25 @@
 +module Responses
 +  class WithdrawService
 +    def initialize(response:, provider:)
@@ -88,6 +92,7 @@ index 0000000..99fe20c
 +
 +    def call
 +      return error("Not your response") unless @response.provider_id == @provider.id
++      return error("Announcement is no longer published") unless @response.announcement.published?
 +
 +      @response.withdraw!
 +      NotificationService.notify(@response.announcement.client, :response_withdrawn, announcement_id: @response.announcement_id)
@@ -115,20 +120,6 @@ index d9e099b..8cdab39 100644
        end
      end
    end
-diff --git a/app_delta/spec/factories/responses.rb b/app_delta/spec/factories/responses.rb
-index 056f707..82ecd54 100644
---- a/app_delta/spec/factories/responses.rb
-+++ b/app_delta/spec/factories/responses.rb
-@@ -12,5 +12,9 @@
-     trait :rejected do
-       state { "rejected" }
-     end
-+
-+    trait :withdrawn do
-+      state { "withdrawn" }
-+    end
-   end
- end
 diff --git a/app_delta/spec/models/response_spec.rb b/app_delta/spec/models/response_spec.rb
 index 43a940a..c296ad7 100644
 --- a/app_delta/spec/models/response_spec.rb
@@ -158,10 +149,10 @@ index 43a940a..c296ad7 100644
  end
 diff --git a/app_delta/spec/services/responses/withdraw_service_spec.rb b/app_delta/spec/services/responses/withdraw_service_spec.rb
 new file mode 100644
-index 0000000..0b5a0bf
+index 0000000..909662b
 --- /dev/null
 +++ b/app_delta/spec/services/responses/withdraw_service_spec.rb
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,61 @@
 +require "rails_helper"
 +
 +RSpec.describe Responses::WithdrawService do
@@ -185,7 +176,7 @@ index 0000000..0b5a0bf
 +      end
 +    end
 +
-+    context "when provider does not own response" do
++    context "when provider does not own the response" do
 +      let(:other_provider) { create(:provider) }
 +      subject(:result) { described_class.new(response: response, provider: other_provider).call }
 +
@@ -195,8 +186,17 @@ index 0000000..0b5a0bf
 +      end
 +    end
 +
-+    context "when response is already selected" do
-+      before { response.select! }
++    context "when announcement is no longer published" do
++      before { announcement.close! }
++
++      it "returns error" do
++        expect(result[:success]).to be false
++        expect(result[:error]).to eq("Announcement is no longer published")
++      end
++    end
++
++    context "when response is already withdrawn" do
++      before { response.withdraw! }
 +
 +      it "returns error" do
 +        expect(result[:success]).to be false
@@ -204,8 +204,8 @@ index 0000000..0b5a0bf
 +      end
 +    end
 +
-+    context "when response is already rejected" do
-+      before { response.reject! }
++    context "when response is already selected" do
++      before { response.select! }
 +
 +      it "returns error" do
 +        expect(result[:success]).to be false

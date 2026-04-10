@@ -3,31 +3,55 @@
 
 ---
 
-Here's the happy path, step by step:
+The main entity in this system is the **Request**, which flows through a lifecycle from a client booking a service provider, through to order fulfillment, payment, and review. Here's the happy path:
 
 ## Happy Path: Request → Order → Payment → Review
 
-**1. Client creates a Request** (state: `pending`)
-- A Client asks a Provider for a service at a specific time (`scheduled_at`) for a given duration (`duration_minutes`).
+### 1. Client & Provider Registration
+- A **Client** registers via `POST /api/clients/register`, getting an `api_token` for authentication.
+- A **Provider** registers via `POST /api/providers/register` with a specialization.
 
-**2. Provider accepts the Request** (state: `pending` → `accepted`)
-- The provider calls `request.accept!`, which transitions the state and stamps `accepted_at`.
+### 2. Client Adds a Payment Card
+- Client calls `POST /api/cards` with card details (token, brand, last_four, expiration).
+- The first card is automatically set as the default.
 
-**3. An Order is created** (state: `pending`)
-- An Order is built from the accepted Request (`order.request_id` links back). It captures the financial details: `amount_cents`, `currency`, plus the same `scheduled_at` and `duration_minutes`.
+### 3. Client Creates a Request
+- Client calls `POST /api/requests` with `provider_id`, `scheduled_at`, `duration_minutes`, `location`, and `notes`.
+- `Requests::CreateService` saves the request in **pending** state and notifies the provider (push/sms/email based on their preferences).
 
-**4. Order is confirmed** (state: `pending` → `confirmed`)
-- A Payment record is created (`status: "pending"`). The day before the scheduled time, the payment hold is placed (`payment.hold!` → `status: "held"`).
+### 4. Provider Accepts the Request
+- Provider calls `PATCH /api/requests/:id/accept`.
+- The AASM state machine transitions the request from **pending** → **accepted**, and `accepted_at` is timestamped.
 
-**5. Order starts** (state: `confirmed` → `in_progress`)
-- When the service begins, `order.start!` is called, stamping `started_at`.
+### 5. Order Is Created
+- Client calls `POST /api/orders` with the provider, schedule, and pricing (`amount_cents`, `currency`).
+- An Order is created in **pending** state, optionally linked to the accepted request.
 
-**6. Order completes** (state: `in_progress` → `completed`)
-- When the service finishes, `order.complete!` is called, stamping `completed_at`. The payment is then charged (`payment.charge!` → `status: "charged"`).
+### 6. Provider Confirms the Order
+- Provider calls `PATCH /api/orders/:id/confirm`.
+- Order transitions from **pending** → **confirmed**.
 
-**7. Reviews are left**
-- Both the Client and Provider can each leave one Review on the completed Order (rating 1–5, optional body). The `order_must_be_completed` validation enforces that reviews only happen after completion.
+### 7. Provider Starts the Service
+- Provider calls `PATCH /api/orders/:id/start`.
+- Order transitions from **confirmed** → **in_progress**, `started_at` is timestamped.
+
+### 8. Provider Completes the Service
+- Provider calls `PATCH /api/orders/:id/complete`.
+- Order transitions from **in_progress** → **completed**, `completed_at` is timestamped.
+
+### 9. Payment Is Processed
+- A Payment record is associated with the order, moving through statuses: **pending** → **held** (funds held before service) → **charged** (after completion).
+
+### 10. Both Parties Leave Reviews
+- Client and provider each call `POST /api/orders/:id/reviews` with a `rating` (1-5) and optional comment.
+- Reviews are only allowed on completed orders, and each party can review only once per order.
 
 ---
 
-**Key alternate flows:** Request can be `declined` or `expired` instead of accepted. Orders can be `canceled` (from pending/confirmed) or `rejected` (from confirmed/in_progress), with a corresponding `payment.refund!`.
+The state flow in summary:
+
+```
+Request:  pending → accepted
+Order:    pending → confirmed → in_progress → completed
+Payment:  pending → held → charged
+```

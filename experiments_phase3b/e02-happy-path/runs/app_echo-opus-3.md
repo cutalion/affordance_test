@@ -3,29 +3,49 @@
 
 ---
 
-The main entity is **Request** — a service booking between a Client and a Provider. Here's the happy path:
-
-### Step 1: `pending` — Client creates a Request
-A client picks a provider and submits a request with a scheduled time, duration, location, and agreed price (`amount_cents`). The request starts in the **pending** state. A **Payment** record is also created (status: `pending`).
-
-### Step 2: `accepted` — Provider accepts
-The provider reviews the incoming request and calls `accept`. The state moves to **accepted** and `accepted_at` is timestamped. At this point the payment is typically put on **hold** (`held`), reserving funds on the client's card.
-
-### Step 3: `in_progress` — Provider starts the service
-When the scheduled time arrives, the provider calls `start`. The state moves to **in_progress** and `started_at` is recorded. The service is now being delivered.
-
-### Step 4: `completed` — Provider completes the service
-Once the work is done, the provider calls `complete`. The state moves to **completed**, `completed_at` is timestamped, and the held payment is **charged**.
-
-### Step 5: Review
-After completion, either party can leave a **Review** on the request.
+The main entity in this system is the **Request** — a service booking between a Client and a Provider. Here's the happy path step by step:
 
 ---
 
-**Alternate (non-happy) paths:**
-- **declined** — provider declines the pending request (with reason)
-- **expired** — pending request times out with no response
-- **canceled** — client cancels while pending or accepted (with reason)
-- **rejected** — provider rejects after accepting or during service (with reason)
+### Step 1: Client creates a Request (`pending`)
+A **Client** creates a request directed at a specific **Provider**, specifying the schedule, duration, location, amount, and optional notes. The provider receives a `request_created` notification.
 
-In those cases the payment would be **refunded** rather than charged.
+`Requests::CreateService` → Request saved in `pending` state.
+
+### Step 2: Provider accepts the Request (`pending` → `accepted`)
+The **Provider** reviews and accepts. On acceptance:
+- A **Payment** record is created (with a 10% platform fee calculated).
+- If the client has a default **Card** on file, `PaymentGateway.hold` places a hold on the funds — the payment moves to `held` status.
+- The client is notified (`request_accepted`).
+
+`Requests::AcceptService#accept_invitation!` → Request moves to `accepted`, timestamps `accepted_at`.
+
+### Step 3: Provider starts the work (`accepted` → `in_progress`)
+When the scheduled time arrives, the **Provider** marks the request as started. The client is notified (`request_started`), and `started_at` is recorded.
+
+`Requests::StartService` → Request moves to `in_progress`.
+
+### Step 4: Provider completes the work (`in_progress` → `completed`)
+After the service is delivered, the **Provider** marks it complete:
+- If the payment was `held`, `PaymentGateway.charge` captures the funds — the payment moves to `charged`.
+- Both client and provider receive `request_completed` notifications.
+- `completed_at` is recorded.
+
+`Requests::CompleteService` → Request moves to `completed`.
+
+### Step 5: Review
+After completion, either the **Client** or the **Provider** can leave a **Review** (rating + body text) on the request. Each party can only leave one review per request (enforced by a unique index on `[request_id, author_type, author_id]`).
+
+---
+
+**State machine summary (happy path):**
+```
+pending → accepted → in_progress → completed
+```
+
+**Money flow:**
+```
+hold (on accept) → charge (on complete)
+```
+
+There's also an alternative entry point via **Announcements** (client publishes an announcement, providers respond, client picks one), but the request lifecycle after acceptance follows the same `accepted → in_progress → completed` path.

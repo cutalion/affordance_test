@@ -3,26 +3,30 @@
 
 ---
 
-This is a **service booking marketplace** — a platform where **clients** book time with **providers** (specialists/professionals). It's derived from a childcare/babysitting domain (Kidsout), abstracted into generic naming.
+This is a **service marketplace / booking platform** built as a Rails API app. Here's the breakdown:
+
+## Domain
+
+A two-sided marketplace connecting **Clients** (who need services) with **Providers** (who deliver services). Currency defaults to RUB, suggesting a Russian market. The domain is generic — it could be home services, tutoring, consulting, etc. Providers have a `specialization` field and a `rating`.
 
 ## Main Entities
 
-- **Client** — a customer who books services. Has email, phone, notification preferences, and an API token for authentication.
-- **Provider** — a service professional (e.g., babysitter). Has a specialization, rating, active status, and notification preferences.
-- **Request** — a booking inquiry from a client to a provider. States: `pending → accepted / declined / expired`. Specifies schedule, duration, location, and notes.
-- **Order** — a confirmed engagement. Can originate from a Request or be created directly. States: `pending → confirmed → in_progress → completed` (or `canceled`/`rejected`). Tracks amount, duration, and schedule.
-- **Payment** — tied 1:1 to an Order. Lifecycle: `pending → held → charged → refunded`. Linked to a Card.
-- **Card** — a client's saved payment method (brand, last four, expiry, token). One can be marked as default.
-- **Review** — polymorphic by author (client or provider), tied to an Order. Has a rating and body. One review per author per order.
-- **RecurringBooking** — a template for generating repeated requests for the same client/provider pair over multiple sessions.
+- **Client** — registers, stores payment cards, books services
+- **Provider** — registers, has a specialization, rating, and active/inactive status
+- **Card** — client's payment card (tokenized, with a "default" flag)
+- **Request** — a client asks a specific provider for availability. States: `pending → accepted / declined / expired`
+- **Order** — the actual booked appointment. States: `pending → confirmed → in_progress → completed`, or `canceled` / `rejected`. Tracks scheduling, duration, amount, and location
+- **Payment** — one per order, with a 10% platform fee. States: `pending → held → charged → refunded`
+- **Review** — polymorphic author (client or provider), tied to a completed order. One review per author per order
 
 ## Typical Workflow
 
-1. **Client registers** and saves a payment **Card**.
-2. Client creates a **Request** to a specific Provider (date, duration, location).
-3. Provider **accepts** (or declines/it expires). Accepting creates an **Order**.
-4. The Order is **confirmed**, then **started**, then **completed**.
-5. A **Payment** is held before the session, then charged upon completion (or refunded on cancellation).
-6. After completion, both parties can leave a **Review**.
+1. **Client creates a Request** to a chosen Provider (date, duration, location, notes)
+2. **Provider accepts or declines** the request
+3. On acceptance, an **Order is created** (either from the request or directly) with a **Payment** record (pending, with a 10% fee)
+4. Provider **confirms** the order, then **starts** it (marks in-progress), then **completes** it
+5. Payment moves through `held → charged` as the order progresses
+6. Either party can leave a **Review** after completion
+7. Orders can be **canceled** (by client, before start) or **rejected** (by provider, after confirmation)
 
-The app exposes two interfaces: an **API** (token-authenticated, for client/provider mobile apps) and a read-only **Admin** dashboard.
+There's also a read-only **Admin** panel for viewing all entities and a dashboard.

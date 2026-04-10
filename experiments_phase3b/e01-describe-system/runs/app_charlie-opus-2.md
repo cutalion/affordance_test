@@ -3,34 +3,32 @@
 
 ---
 
-Here's what this system does:
+This is a **service marketplace / on-demand booking platform** built with Rails (API + admin panel).
 
-## Domain: On-Demand Service Marketplace
+## Domain
 
-This is a **service booking platform** (derived from a childcare/babysitting domain like "Kidsout") where **clients** book time with **providers** (service professionals). Think of it like an Uber-style marketplace but for scheduled services.
+A two-sided marketplace connecting **Clients** (who need a service) with **Providers** (who deliver it). Providers have specializations and ratings. The default currency is RUB, suggesting a Russian market context.
 
 ## Main Entities
 
-- **Client** — a person who books services. Has an email, phone, API token for auth, notification preferences, and saved payment cards.
-- **Provider** — a professional who fulfills requests. Has a rating, specialization, and active/inactive status.
-- **Request** — the central entity. A booking for a provider's time at a specific date/location, with a price (`amount_cents`) and duration. Supports recurring bookings via `recurring_group_id`.
-- **Payment** — tracks money flow for a request. Follows a hold-then-charge model (pending → held → charged), with refund support.
-- **Card** — a saved payment method (Visa, Mastercard, Amex, Mir) belonging to a client. One card can be marked as default.
-- **Review** — polymorphic; both clients and providers can review each other after a completed request. Rating 1-5 with optional body text.
+| Entity | Role |
+|--------|------|
+| **Client** | Requests services, holds payment cards, leaves reviews |
+| **Provider** | Accepts/declines/performs service requests, has a rating and specialization |
+| **Request** | The core entity — a scheduled booking between a client and a provider, with time, location, duration, and price |
+| **Payment** | Tracks money flow for a request (hold → charge → possible refund) |
+| **Card** | A client's stored payment card (tokenized), one can be marked default |
+| **Review** | Post-completion rating (1–5) + text, written by either client or provider |
 
 ## Typical Workflow
 
-1. **Client creates a Request** — picks a provider, date/time, duration, location, and amount.
-2. **Provider accepts or declines** — a pending request can be accepted, declined (with reason), or it expires automatically.
-3. **Service starts** — an accepted request transitions to `in_progress`.
-4. **Service completes** — marked as completed, triggering payment processing (hold → charge).
-5. **Reviews** — after completion, both parties can leave a review.
+1. **Client creates a Request** — picks a provider, schedules a time/location, sets duration and amount. The provider is notified.
+2. **Provider accepts** (or **declines** with a reason). Pending requests can also **expire** or be **canceled** by the client.
+3. **On accept** — a Payment is created and the client's default card is **held** (pre-authorized).
+4. **Provider starts** the service (request moves to `in_progress`).
+5. **Provider completes** the service — the held payment is automatically **charged**, and both parties are notified.
+6. **Either party can leave a Review** once the request is completed.
 
-Requests can also be **canceled** by the client (from pending/accepted) or **rejected** by the provider (from accepted/in_progress), each requiring a reason.
+Alternative flows: the client can **cancel** (pending/accepted), the provider can **reject** (accepted/in_progress) — both triggering a payment **refund** if funds were held.
 
-## Architecture
-
-- **API layer** (`/api`) — token-authenticated JSON API for clients and providers (registration, booking, payments, reviews).
-- **Admin layer** (`/admin`) — read-only dashboard for managing/viewing requests, clients, providers, and payments.
-- **Service objects** (`app/services/requests/*`) — each state transition has its own service class, keeping controllers thin.
-- **State machine** — the Request model uses AASM for a well-defined lifecycle with guarded transitions.
+The app also has a read-only **admin panel** for viewing dashboard stats, requests, clients, providers, and payments.

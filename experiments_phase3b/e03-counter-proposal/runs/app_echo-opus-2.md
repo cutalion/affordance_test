@@ -6,26 +6,26 @@
 
 ## Claude Output
 
-All done. Here's a summary of what was implemented:
+All 155 tests pass (18 new). Here's what was implemented:
 
-**State machine** — Added `counter_proposed` state with 3 new events on `Request`:
-- `counter_propose`: `pending` -> `counter_proposed`
-- `accept_counter`: `counter_proposed` -> `accepted` (updates `scheduled_at` to proposed time)
-- `decline_counter`: `counter_proposed` -> `pending` (clears proposal fields)
+**New state**: `counter_proposed` added to the Request AASM state machine.
 
-**3 new services:**
-- `Requests::CounterProposeService` — provider proposes a different time + optional message
-- `Requests::AcceptCounterService` — client accepts (creates payment, holds if card present, notifies provider)
-- `Requests::DeclineCounterService` — client declines (returns to pending, clears proposal, notifies provider)
+**State transitions**:
+- `pending` → `counter_proposed` (provider counter-proposes a different time)
+- `counter_proposed` → `accepted` (client accepts — `scheduled_at` updates to the proposed time, payment created)
+- `counter_proposed` → `pending` (client declines — proposed fields cleared, provider can try again)
 
-**API endpoints:**
-- `PATCH /api/requests/:id/counter_propose` (provider, requires `proposed_scheduled_at`)
-- `PATCH /api/requests/:id/accept_counter` (client)
-- `PATCH /api/requests/:id/decline_counter` (client)
+**Migration**: Added `proposed_scheduled_at` (datetime) and `counter_proposal_reason` (text) columns to `requests`.
 
-**JSON response** now includes `proposed_scheduled_at` and `counter_proposal_message` fields.
+**Three new services**:
+- `Requests::CounterProposeService` — provider provides a new time and reason; notifies client
+- `Requests::AcceptCounterProposalService` — client accepts; updates `scheduled_at`, creates payment, holds if card present; notifies provider
+- `Requests::DeclineCounterProposalService` — client declines with reason; resets to pending; notifies provider
 
-**21 new tests** covering happy paths, authorization checks, state guards, payment creation, and notifications. Full suite: 158 tests, 0 failures.
+**API endpoints** (all `PATCH`):
+- `PATCH /api/requests/:id/counter_propose` — params: `proposed_scheduled_at`, `reason`
+- `PATCH /api/requests/:id/accept_counter` — no params needed
+- `PATCH /api/requests/:id/decline_counter` — params: `reason`
 
 ---
 
@@ -33,7 +33,7 @@ All done. Here's a summary of what was implemented:
 
 ```diff
 diff --git a/app_echo/app/controllers/api/requests_controller.rb b/app_echo/app/controllers/api/requests_controller.rb
-index 420a57a..8b9f398 100644
+index 420a57a..5c3e653 100644
 --- a/app_echo/app/controllers/api/requests_controller.rb
 +++ b/app_echo/app/controllers/api/requests_controller.rb
 @@ -1,6 +1,6 @@
@@ -44,7 +44,7 @@ index 420a57a..8b9f398 100644
  
      def index
        requests = scoped_requests
-@@ -104,6 +104,45 @@ def reject
+@@ -104,6 +104,46 @@ def reject
        handle_service_result(result)
      end
  
@@ -52,15 +52,11 @@ index 420a57a..8b9f398 100644
 +      provider = current_provider!
 +      return if performed?
 +
-+      if params[:proposed_scheduled_at].blank?
-+        return render_unprocessable(["Proposed time is required"])
-+      end
-+
 +      result = Requests::CounterProposeService.new(
 +        request: @request,
 +        provider: provider,
 +        proposed_scheduled_at: params[:proposed_scheduled_at],
-+        message: params[:message]
++        reason: params[:reason]
 +      ).call
 +      handle_service_result(result)
 +    end
@@ -69,7 +65,7 @@ index 420a57a..8b9f398 100644
 +      client = current_client!
 +      return if performed?
 +
-+      result = Requests::AcceptCounterService.new(
++      result = Requests::AcceptCounterProposalService.new(
 +        request: @request,
 +        client: client
 +      ).call
@@ -80,9 +76,14 @@ index 420a57a..8b9f398 100644
 +      client = current_client!
 +      return if performed?
 +
-+      result = Requests::DeclineCounterService.new(
++      if params[:reason].blank?
++        return render_unprocessable(["Reason is required"])
++      end
++
++      result = Requests::DeclineCounterProposalService.new(
 +        request: @request,
-+        client: client
++        client: client,
++        reason: params[:reason]
 +      ).call
 +      handle_service_result(result)
 +    end
@@ -90,20 +91,29 @@ index 420a57a..8b9f398 100644
      private
  
      def set_request
-@@ -156,6 +195,8 @@ def request_detail_json(request)
+@@ -153,6 +193,8 @@ def request_detail_json(request)
+         notes: request.notes,
+         amount_cents: request.amount_cents,
+         currency: request.currency,
++        proposed_scheduled_at: request.proposed_scheduled_at,
++        counter_proposal_reason: request.counter_proposal_reason,
          decline_reason: request.decline_reason,
          cancel_reason: request.cancel_reason,
          reject_reason: request.reject_reason,
-+        proposed_scheduled_at: request.proposed_scheduled_at,
-+        counter_proposal_message: request.counter_proposal_message,
-         accepted_at: request.accepted_at,
-         expired_at: request.expired_at,
-         started_at: request.started_at,
 diff --git a/app_echo/app/models/request.rb b/app_echo/app/models/request.rb
-index 7795b75..01cae67 100644
+index 7795b75..831d5c0 100644
 --- a/app_echo/app/models/request.rb
 +++ b/app_echo/app/models/request.rb
-@@ -38,6 +38,7 @@ class Request < ApplicationRecord
+@@ -15,6 +15,8 @@ class Request < ApplicationRecord
+   validates :decline_reason, presence: true, if: -> { declined? }
+   validates :cancel_reason, presence: true, if: -> { canceled? }
+   validates :reject_reason, presence: true, if: -> { rejected? }
++  validates :proposed_scheduled_at, presence: true, if: -> { counter_proposed? }
++  validates :counter_proposal_reason, presence: true, if: -> { counter_proposed? }
+ 
+   scope :upcoming, -> { where("scheduled_at > ?", Time.current) }
+   scope :past, -> { where("scheduled_at <= ?", Time.current) }
+@@ -38,6 +40,7 @@ class Request < ApplicationRecord
      state :expired
      state :canceled
      state :rejected
@@ -111,7 +121,7 @@ index 7795b75..01cae67 100644
  
      event :accept do
        transitions from: :pending, to: :accepted
-@@ -78,5 +79,20 @@ class Request < ApplicationRecord
+@@ -78,5 +81,23 @@ class Request < ApplicationRecord
      event :reject do
        transitions from: [:accepted, :in_progress], to: :rejected
      end
@@ -129,17 +139,20 @@ index 7795b75..01cae67 100644
 +
 +    event :decline_counter do
 +      transitions from: :counter_proposed, to: :pending
++      after do
++        update!(proposed_scheduled_at: nil, counter_proposal_reason: nil)
++      end
 +    end
    end
  end
-diff --git a/app_echo/app/services/requests/accept_counter_service.rb b/app_echo/app/services/requests/accept_counter_service.rb
+diff --git a/app_echo/app/services/requests/accept_counter_proposal_service.rb b/app_echo/app/services/requests/accept_counter_proposal_service.rb
 new file mode 100644
-index 0000000..e4fc76b
+index 0000000..be94abd
 --- /dev/null
-+++ b/app_echo/app/services/requests/accept_counter_service.rb
++++ b/app_echo/app/services/requests/accept_counter_proposal_service.rb
 @@ -0,0 +1,41 @@
 +module Requests
-+  class AcceptCounterService
++  class AcceptCounterProposalService
 +    def initialize(request:, client:)
 +      @request = request
 +      @client = client
@@ -181,28 +194,29 @@ index 0000000..e4fc76b
 +end
 diff --git a/app_echo/app/services/requests/counter_propose_service.rb b/app_echo/app/services/requests/counter_propose_service.rb
 new file mode 100644
-index 0000000..d6fc5fe
+index 0000000..f8fdb6b
 --- /dev/null
 +++ b/app_echo/app/services/requests/counter_propose_service.rb
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,31 @@
 +module Requests
 +  class CounterProposeService
-+    def initialize(request:, provider:, proposed_scheduled_at:, message: nil)
++    def initialize(request:, provider:, proposed_scheduled_at:, reason:)
 +      @request = request
 +      @provider = provider
 +      @proposed_scheduled_at = proposed_scheduled_at
-+      @message = message
++      @reason = reason
 +    end
 +
 +    def call
 +      return error("Not your request") unless @request.provider_id == @provider.id
 +      return error("Proposed time is required") if @proposed_scheduled_at.blank?
++      return error("Reason is required") if @reason.blank?
 +
 +      @request.proposed_scheduled_at = @proposed_scheduled_at
-+      @request.counter_proposal_message = @message
++      @request.counter_proposal_reason = @reason
 +      @request.counter_propose!
 +
-+      NotificationService.notify(@request.client, :request_counter_proposed, request_id: @request.id)
++      NotificationService.notify(@request.client, :counter_proposal, request_id: @request.id)
 +      { success: true, request: @request }
 +    rescue AASM::InvalidTransition
 +      error("Cannot counter-propose for request in #{@request.state} state")
@@ -215,24 +229,25 @@ index 0000000..d6fc5fe
 +    end
 +  end
 +end
-diff --git a/app_echo/app/services/requests/decline_counter_service.rb b/app_echo/app/services/requests/decline_counter_service.rb
+diff --git a/app_echo/app/services/requests/decline_counter_proposal_service.rb b/app_echo/app/services/requests/decline_counter_proposal_service.rb
 new file mode 100644
-index 0000000..d6093d5
+index 0000000..50f82c6
 --- /dev/null
-+++ b/app_echo/app/services/requests/decline_counter_service.rb
-@@ -0,0 +1,26 @@
++++ b/app_echo/app/services/requests/decline_counter_proposal_service.rb
+@@ -0,0 +1,27 @@
 +module Requests
-+  class DeclineCounterService
-+    def initialize(request:, client:)
++  class DeclineCounterProposalService
++    def initialize(request:, client:, reason:)
 +      @request = request
 +      @client = client
++      @reason = reason
 +    end
 +
 +    def call
 +      return error("Not your request") unless @request.client_id == @client.id
++      return error("Reason is required") if @reason.blank?
 +
 +      @request.decline_counter!
-+      @request.update!(proposed_scheduled_at: nil, counter_proposal_message: nil)
 +
 +      NotificationService.notify(@request.provider, :counter_proposal_declined, request_id: @request.id)
 +      { success: true, request: @request }
@@ -261,16 +276,28 @@ index da43a53..a93a62e 100644
        end
        resources :reviews, only: [:index, :create]
      end
+diff --git a/app_echo/db/migrate/20260408140809_add_proposed_scheduled_at_to_requests.rb b/app_echo/db/migrate/20260408140809_add_proposed_scheduled_at_to_requests.rb
+new file mode 100644
+index 0000000..a60818f
+--- /dev/null
++++ b/app_echo/db/migrate/20260408140809_add_proposed_scheduled_at_to_requests.rb
+@@ -0,0 +1,6 @@
++class AddProposedScheduledAtToRequests < ActiveRecord::Migration[8.1]
++  def change
++    add_column :requests, :proposed_scheduled_at, :datetime
++    add_column :requests, :counter_proposal_reason, :text
++  end
++end
 diff --git a/app_echo/db/schema.rb b/app_echo/db/schema.rb
-index c2c99cb..c11cd94 100644
+index 12d0e60..c219bae 100644
 --- a/app_echo/db/schema.rb
 +++ b/app_echo/db/schema.rb
 @@ -10,7 +10,7 @@
  #
  # It's strongly recommended that you check this file into your version control system.
  
--ActiveRecord::Schema[8.1].define(version: 2026_04_09_084335) do
-+ActiveRecord::Schema[8.1].define(version: 2026_04_09_152727) do
+-ActiveRecord::Schema[8.1].define(version: 2026_04_08_140808) do
++ActiveRecord::Schema[8.1].define(version: 2026_04_08_140809) do
    create_table "announcements", force: :cascade do |t|
      t.integer "budget_cents"
      t.integer "client_id", null: false
@@ -278,7 +305,7 @@ index c2c99cb..c11cd94 100644
      t.text "cancel_reason"
      t.integer "client_id", null: false
      t.datetime "completed_at"
-+    t.text "counter_proposal_message"
++    t.text "counter_proposal_reason"
      t.datetime "created_at", null: false
      t.string "currency", default: "RUB", null: false
      t.text "decline_reason"
@@ -288,10 +315,10 @@ index c2c99cb..c11cd94 100644
      t.integer "proposed_amount_cents"
 +    t.datetime "proposed_scheduled_at"
      t.integer "provider_id", null: false
-     t.string "recurring_group_id"
-     t.integer "recurring_index"
+     t.text "reject_reason"
+     t.text "response_message"
 diff --git a/app_echo/spec/factories/requests.rb b/app_echo/spec/factories/requests.rb
-index 4620d0c..0666ef1 100644
+index 4620d0c..12dc2b8 100644
 --- a/app_echo/spec/factories/requests.rb
 +++ b/app_echo/spec/factories/requests.rb
 @@ -47,6 +47,12 @@
@@ -301,47 +328,41 @@ index 4620d0c..0666ef1 100644
 +    trait :counter_proposed do
 +      state { "counter_proposed" }
 +      proposed_scheduled_at { 5.days.from_now }
-+      counter_proposal_message { "How about this time instead?" }
++      counter_proposal_reason { "I'm not available at that time" }
 +    end
 +
      trait :with_payment do
        after(:create) do |request|
          create(:payment, request: request, amount_cents: request.amount_cents, currency: request.currency)
-diff --git a/app_echo/spec/services/requests/accept_counter_service_spec.rb b/app_echo/spec/services/requests/accept_counter_service_spec.rb
+diff --git a/app_echo/spec/services/requests/accept_counter_proposal_service_spec.rb b/app_echo/spec/services/requests/accept_counter_proposal_service_spec.rb
 new file mode 100644
-index 0000000..6e5c823
+index 0000000..76bfe1c
 --- /dev/null
-+++ b/app_echo/spec/services/requests/accept_counter_service_spec.rb
-@@ -0,0 +1,83 @@
++++ b/app_echo/spec/services/requests/accept_counter_proposal_service_spec.rb
+@@ -0,0 +1,75 @@
 +require "rails_helper"
 +
-+RSpec.describe Requests::AcceptCounterService do
-+  let(:provider) { create(:provider) }
++RSpec.describe Requests::AcceptCounterProposalService do
 +  let(:client) { create(:client) }
++  let(:provider) { create(:provider) }
 +  let(:proposed_time) { 5.days.from_now }
 +  let(:request) do
-+    create(:request,
++    create(:request, :counter_proposed,
 +      client: client,
 +      provider: provider,
-+      state: "counter_proposed",
-+      proposed_scheduled_at: proposed_time,
-+      counter_proposal_message: "How about Thursday?"
++      proposed_scheduled_at: proposed_time
 +    )
 +  end
 +
 +  describe "#call" do
 +    context "with correct client" do
-+      it "accepts the counter-proposal" do
++      it "accepts the counter-proposal and updates scheduled_at" do
 +        result = described_class.new(request: request, client: client).call
 +
 +        expect(result[:success]).to be true
 +        expect(request.reload).to be_accepted
-+      end
-+
-+      it "updates scheduled_at to the proposed time" do
-+        described_class.new(request: request, client: client).call
-+
-+        expect(request.reload.scheduled_at).to be_within(1.second).of(proposed_time)
++        expect(request.scheduled_at).to be_within(1.second).of(proposed_time)
++        expect(request.accepted_at).to be_present
 +      end
 +
 +      it "creates a payment" do
@@ -378,18 +399,16 @@ index 0000000..6e5c823
 +
 +      it "returns error" do
 +        result = described_class.new(request: request, client: other_client).call
-+
 +        expect(result[:success]).to be false
 +        expect(result[:error]).to include("Not your request")
 +      end
 +    end
 +
 +    context "when request is not counter_proposed" do
-+      let(:pending_request) { create(:request, client: client, provider: provider) }
++      let(:request) { create(:request, client: client, provider: provider) }
 +
 +      it "returns error" do
-+        result = described_class.new(request: pending_request, client: client).call
-+
++        result = described_class.new(request: request, client: client).call
 +        expect(result[:success]).to be false
 +        expect(result[:error]).to include("Cannot accept counter-proposal")
 +      end
@@ -398,52 +417,31 @@ index 0000000..6e5c823
 +end
 diff --git a/app_echo/spec/services/requests/counter_propose_service_spec.rb b/app_echo/spec/services/requests/counter_propose_service_spec.rb
 new file mode 100644
-index 0000000..fdd6373
+index 0000000..ce85452
 --- /dev/null
 +++ b/app_echo/spec/services/requests/counter_propose_service_spec.rb
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,96 @@
 +require "rails_helper"
 +
 +RSpec.describe Requests::CounterProposeService do
 +  let(:provider) { create(:provider) }
-+  let(:client) { create(:client) }
-+  let(:request) { create(:request, client: client, provider: provider) }
++  let(:request) { create(:request, provider: provider) }
 +  let(:proposed_time) { 5.days.from_now }
 +
 +  describe "#call" do
-+    context "with correct provider and valid proposed time" do
-+      it "transitions request to counter_proposed state" do
++    context "with correct provider and valid params" do
++      it "transitions to counter_proposed state" do
 +        result = described_class.new(
 +          request: request,
 +          provider: provider,
 +          proposed_scheduled_at: proposed_time,
-+          message: "I'm busy that day, how about this time?"
++          reason: "I'm busy that day"
 +        ).call
 +
 +        expect(result[:success]).to be true
 +        expect(request.reload).to be_counter_proposed
-+      end
-+
-+      it "stores the proposed scheduled_at" do
-+        described_class.new(
-+          request: request,
-+          provider: provider,
-+          proposed_scheduled_at: proposed_time,
-+          message: "Different time works better"
-+        ).call
-+
-+        expect(request.reload.proposed_scheduled_at).to be_within(1.second).of(proposed_time)
-+      end
-+
-+      it "stores the counter-proposal message" do
-+        described_class.new(
-+          request: request,
-+          provider: provider,
-+          proposed_scheduled_at: proposed_time,
-+          message: "How about Thursday?"
-+        ).call
-+
-+        expect(request.reload.counter_proposal_message).to eq("How about Thursday?")
++        expect(request.proposed_scheduled_at).to be_within(1.second).of(proposed_time)
++        expect(request.counter_proposal_reason).to eq("I'm busy that day")
 +      end
 +
 +      it "notifies the client" do
@@ -451,10 +449,10 @@ index 0000000..fdd6373
 +          request: request,
 +          provider: provider,
 +          proposed_scheduled_at: proposed_time,
-+          message: "Different time"
++          reason: "I'm busy that day"
 +        ).call
 +
-+        expect(read_notification_log).to include("event=request_counter_proposed")
++        expect(read_notification_log).to include("event=counter_proposal")
 +      end
 +    end
 +
@@ -465,7 +463,8 @@ index 0000000..fdd6373
 +        result = described_class.new(
 +          request: request,
 +          provider: other_provider,
-+          proposed_scheduled_at: proposed_time
++          proposed_scheduled_at: proposed_time,
++          reason: "I'm busy"
 +        ).call
 +
 +        expect(result[:success]).to be false
@@ -473,12 +472,13 @@ index 0000000..fdd6373
 +      end
 +    end
 +
-+    context "without proposed_scheduled_at" do
++    context "without proposed time" do
 +      it "returns error" do
 +        result = described_class.new(
 +          request: request,
 +          provider: provider,
-+          proposed_scheduled_at: nil
++          proposed_scheduled_at: nil,
++          reason: "I'm busy"
 +        ).call
 +
 +        expect(result[:success]).to be false
@@ -486,14 +486,29 @@ index 0000000..fdd6373
 +      end
 +    end
 +
++    context "without reason" do
++      it "returns error" do
++        result = described_class.new(
++          request: request,
++          provider: provider,
++          proposed_scheduled_at: proposed_time,
++          reason: nil
++        ).call
++
++        expect(result[:success]).to be false
++        expect(result[:error]).to include("Reason is required")
++      end
++    end
++
 +    context "when request is not pending" do
-+      before { request.accept! }
++      before { request.update!(state: "accepted", accepted_at: Time.current) }
 +
 +      it "returns error" do
 +        result = described_class.new(
 +          request: request,
 +          provider: provider,
-+          proposed_scheduled_at: proposed_time
++          proposed_scheduled_at: proposed_time,
++          reason: "I'm busy"
 +        ).call
 +
 +        expect(result[:success]).to be false
@@ -502,51 +517,34 @@ index 0000000..fdd6373
 +    end
 +  end
 +end
-diff --git a/app_echo/spec/services/requests/decline_counter_service_spec.rb b/app_echo/spec/services/requests/decline_counter_service_spec.rb
+diff --git a/app_echo/spec/services/requests/decline_counter_proposal_service_spec.rb b/app_echo/spec/services/requests/decline_counter_proposal_service_spec.rb
 new file mode 100644
-index 0000000..127e40e
+index 0000000..025d097
 --- /dev/null
-+++ b/app_echo/spec/services/requests/decline_counter_service_spec.rb
-@@ -0,0 +1,66 @@
++++ b/app_echo/spec/services/requests/decline_counter_proposal_service_spec.rb
+@@ -0,0 +1,55 @@
 +require "rails_helper"
 +
-+RSpec.describe Requests::DeclineCounterService do
-+  let(:provider) { create(:provider) }
++RSpec.describe Requests::DeclineCounterProposalService do
 +  let(:client) { create(:client) }
++  let(:provider) { create(:provider) }
 +  let(:request) do
-+    create(:request,
-+      client: client,
-+      provider: provider,
-+      state: "counter_proposed",
-+      proposed_scheduled_at: 5.days.from_now,
-+      counter_proposal_message: "How about Thursday?"
-+    )
++    create(:request, :counter_proposed, client: client, provider: provider)
 +  end
 +
 +  describe "#call" do
-+    context "with correct client" do
++    context "with correct client and reason" do
 +      it "returns request to pending state" do
-+        result = described_class.new(request: request, client: client).call
++        result = described_class.new(request: request, client: client, reason: "That time doesn't work either").call
 +
 +        expect(result[:success]).to be true
 +        expect(request.reload).to be_pending
-+      end
-+
-+      it "clears the proposed_scheduled_at" do
-+        described_class.new(request: request, client: client).call
-+
-+        expect(request.reload.proposed_scheduled_at).to be_nil
-+      end
-+
-+      it "clears the counter_proposal_message" do
-+        described_class.new(request: request, client: client).call
-+
-+        expect(request.reload.counter_proposal_message).to be_nil
++        expect(request.proposed_scheduled_at).to be_nil
++        expect(request.counter_proposal_reason).to be_nil
 +      end
 +
 +      it "notifies the provider" do
-+        described_class.new(request: request, client: client).call
-+
++        described_class.new(request: request, client: client, reason: "That time doesn't work either").call
 +        expect(read_notification_log).to include("event=counter_proposal_declined")
 +      end
 +    end
@@ -555,19 +553,25 @@ index 0000000..127e40e
 +      let(:other_client) { create(:client) }
 +
 +      it "returns error" do
-+        result = described_class.new(request: request, client: other_client).call
-+
++        result = described_class.new(request: request, client: other_client, reason: "No").call
 +        expect(result[:success]).to be false
 +        expect(result[:error]).to include("Not your request")
 +      end
 +    end
 +
++    context "without reason" do
++      it "returns error" do
++        result = described_class.new(request: request, client: client, reason: nil).call
++        expect(result[:success]).to be false
++        expect(result[:error]).to include("Reason is required")
++      end
++    end
++
 +    context "when request is not counter_proposed" do
-+      let(:pending_request) { create(:request, client: client, provider: provider) }
++      let(:request) { create(:request, client: client, provider: provider) }
 +
 +      it "returns error" do
-+        result = described_class.new(request: pending_request, client: client).call
-+
++        result = described_class.new(request: request, client: client, reason: "No").call
 +        expect(result[:success]).to be false
 +        expect(result[:error]).to include("Cannot decline counter-proposal")
 +      end

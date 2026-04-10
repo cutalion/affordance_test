@@ -6,76 +6,74 @@
 
 ## Claude Output
 
-All 143 tests pass (including 6 new ones). Here's what I implemented:
+All 148 specs pass. Here's a summary of what was implemented:
 
-**Feature: Provider can withdraw their response to an announcement**
+**Migration** — Added `withdraw_reason` (text) and `withdrawn_at` (datetime) columns to the `requests` table.
 
-A provider who responded to an announcement can withdraw that response while it's still in `pending` state (before the client accepts/declines).
+**Model** (`app/models/request.rb`) — Added `withdrawn` state, `withdraw` event (transitions from `pending` to `withdrawn`, sets `withdrawn_at`), and validation requiring `withdraw_reason` when withdrawn.
 
-**Changes:**
+**Service** (`app/services/requests/withdraw_service.rb`) — Validates that:
+- The provider owns the request
+- The request is a response to an announcement (not a direct request)
+- A reason is provided
+- Notifies the client with a `response_withdrawn` event
 
-1. **`app/models/request.rb`** — Added `withdrawn` state, `withdraw` event (from `pending`), and `withdraw_reason` presence validation
-2. **`app/services/requests/withdraw_service.rb`** — New service that validates ownership, ensures the request is an announcement response, requires a reason, transitions state, and notifies the client
-3. **`app/controllers/api/announcements_controller.rb`** — Added `withdraw_response` action that takes `request_id` and `reason` params
-4. **`config/routes.rb`** — Added `PATCH /api/announcements/:id/withdraw_response` route
-5. **`spec/services/requests/withdraw_service_spec.rb`** — 6 tests covering happy path, notification, missing reason, non-announcement request, wrong provider, and already-accepted request
-6. **`spec/factories/requests.rb`** — Added `:withdrawn` trait
+**Controller** (`app/controllers/api/requests_controller.rb`) — Added `withdraw` action, exposed `withdraw_reason` and `withdrawn_at` in the JSON response.
 
-**API usage:**
-```
-PATCH /api/announcements/:announcement_id/withdraw_response
-Authorization: Bearer <provider_token>
-{ "request_id": 123, "reason": "No longer available" }
-```
+**Route** — `PATCH /api/requests/:id/withdraw` with `reason` parameter.
+
+**Specs** — Model specs for the withdraw state/validation/transitions, and service specs covering the happy path, missing reason, non-announcement requests, wrong provider, and already-accepted requests.
 
 ---
 
 ## Git Diff
 
 ```diff
-diff --git a/app_echo/app/controllers/api/announcements_controller.rb b/app_echo/app/controllers/api/announcements_controller.rb
-index 5c0d2c6..d20a588 100644
---- a/app_echo/app/controllers/api/announcements_controller.rb
-+++ b/app_echo/app/controllers/api/announcements_controller.rb
+diff --git a/app_echo/app/controllers/api/requests_controller.rb b/app_echo/app/controllers/api/requests_controller.rb
+index 420a57a..45dd46f 100644
+--- a/app_echo/app/controllers/api/requests_controller.rb
++++ b/app_echo/app/controllers/api/requests_controller.rb
 @@ -1,6 +1,6 @@
  module Api
-   class AnnouncementsController < BaseController
--    before_action :set_announcement, only: [:show, :publish, :close, :respond]
-+    before_action :set_announcement, only: [:show, :publish, :close, :respond, :withdraw_response]
+   class RequestsController < BaseController
+-    before_action :set_request, only: [:show, :accept, :decline, :start, :complete, :cancel, :reject]
++    before_action :set_request, only: [:show, :accept, :decline, :start, :complete, :cancel, :reject, :withdraw]
  
      def index
-       announcements = Announcement.published.sorted.page(params[:page])
-@@ -67,6 +67,30 @@ def respond
-       end
+       requests = scoped_requests
+@@ -104,6 +104,22 @@ def reject
+       handle_service_result(result)
      end
  
-+    def withdraw_response
++    def withdraw
 +      provider = current_provider!
 +      return if performed?
-+
-+      request = @announcement.requests.find_by(id: params[:request_id])
-+      return render_not_found unless request
 +
 +      if params[:reason].blank?
 +        return render_unprocessable(["Reason is required"])
 +      end
 +
 +      result = Requests::WithdrawService.new(
-+        request: request,
++        request: @request,
 +        provider: provider,
 +        reason: params[:reason]
 +      ).call
-+
-+      if result[:success]
-+        render json: request_json(result[:request])
-+      else
-+        render json: { error: result[:error] }, status: :unprocessable_entity
-+      end
++      handle_service_result(result)
 +    end
 +
      private
  
-     def set_announcement
+     def set_request
+@@ -156,7 +172,9 @@ def request_detail_json(request)
+         decline_reason: request.decline_reason,
+         cancel_reason: request.cancel_reason,
+         reject_reason: request.reject_reason,
++        withdraw_reason: request.withdraw_reason,
+         accepted_at: request.accepted_at,
++        withdrawn_at: request.withdrawn_at,
+         expired_at: request.expired_at,
+         started_at: request.started_at,
+         completed_at: request.completed_at,
 diff --git a/app_echo/app/models/request.rb b/app_echo/app/models/request.rb
 index 7795b75..763e8df 100644
 --- a/app_echo/app/models/request.rb
@@ -145,19 +143,53 @@ index 0000000..017a745
 +  end
 +end
 diff --git a/app_echo/config/routes.rb b/app_echo/config/routes.rb
-index da43a53..3a2ab9e 100644
+index da43a53..ba3a117 100644
 --- a/app_echo/config/routes.rb
 +++ b/app_echo/config/routes.rb
-@@ -29,6 +29,7 @@
-         patch :publish
-         patch :close
-         post :respond
-+        patch :withdraw_response
+@@ -18,6 +18,7 @@
+         patch :complete
+         patch :cancel
+         patch :reject
++        patch :withdraw
        end
+       resources :reviews, only: [:index, :create]
      end
-   end
+diff --git a/app_echo/db/migrate/20260410133438_add_withdraw_fields_to_requests.rb b/app_echo/db/migrate/20260410133438_add_withdraw_fields_to_requests.rb
+new file mode 100644
+index 0000000..8fa67fd
+--- /dev/null
++++ b/app_echo/db/migrate/20260410133438_add_withdraw_fields_to_requests.rb
+@@ -0,0 +1,6 @@
++class AddWithdrawFieldsToRequests < ActiveRecord::Migration[8.1]
++  def change
++    add_column :requests, :withdraw_reason, :text
++    add_column :requests, :withdrawn_at, :datetime
++  end
++end
+diff --git a/app_echo/db/schema.rb b/app_echo/db/schema.rb
+index 12d0e60..4f48423 100644
+--- a/app_echo/db/schema.rb
++++ b/app_echo/db/schema.rb
+@@ -10,7 +10,7 @@
+ #
+ # It's strongly recommended that you check this file into your version control system.
+ 
+-ActiveRecord::Schema[8.1].define(version: 2026_04_08_140808) do
++ActiveRecord::Schema[8.1].define(version: 2026_04_10_133438) do
+   create_table "announcements", force: :cascade do |t|
+     t.integer "budget_cents"
+     t.integer "client_id", null: false
+@@ -108,6 +108,8 @@
+     t.datetime "started_at"
+     t.string "state", default: "pending", null: false
+     t.datetime "updated_at", null: false
++    t.text "withdraw_reason"
++    t.datetime "withdrawn_at"
+     t.index ["announcement_id"], name: "index_requests_on_announcement_id"
+     t.index ["client_id"], name: "index_requests_on_client_id"
+     t.index ["provider_id"], name: "index_requests_on_provider_id"
 diff --git a/app_echo/spec/factories/requests.rb b/app_echo/spec/factories/requests.rb
-index 4620d0c..aa29bc3 100644
+index 4620d0c..cf3d710 100644
 --- a/app_echo/spec/factories/requests.rb
 +++ b/app_echo/spec/factories/requests.rb
 @@ -47,6 +47,13 @@
@@ -166,7 +198,7 @@ index 4620d0c..aa29bc3 100644
  
 +    trait :withdrawn do
 +      state { "withdrawn" }
-+      withdraw_reason { "No longer available" }
++      withdraw_reason { "Changed my mind" }
 +      withdrawn_at { Time.current }
 +      announcement { association :announcement, :published }
 +    end
@@ -174,12 +206,59 @@ index 4620d0c..aa29bc3 100644
      trait :with_payment do
        after(:create) do |request|
          create(:payment, request: request, amount_cents: request.amount_cents, currency: request.currency)
+diff --git a/app_echo/spec/models/request_spec.rb b/app_echo/spec/models/request_spec.rb
+index a9aece5..9548ffb 100644
+--- a/app_echo/spec/models/request_spec.rb
++++ b/app_echo/spec/models/request_spec.rb
+@@ -51,6 +51,14 @@
+         expect(request.errors[:reject_reason]).to be_present
+       end
+     end
++
++    context "when withdrawn" do
++      it "requires withdraw_reason" do
++        request = build(:request, :withdrawn, withdraw_reason: nil)
++        expect(request).not_to be_valid
++        expect(request.errors[:withdraw_reason]).to be_present
++      end
++    end
+   end
+ 
+   describe "state machine" do
+@@ -180,6 +188,27 @@
+         expect { request.reject! }.to raise_error(AASM::InvalidTransition)
+       end
+     end
++
++    describe "withdraw event" do
++      it "transitions from pending to withdrawn" do
++        request.update!(withdraw_reason: "Changed my mind")
++        request.withdraw!
++        expect(request).to be_withdrawn
++      end
++
++      it "sets withdrawn_at timestamp" do
++        freeze_time do
++          request.update!(withdraw_reason: "Changed my mind")
++          request.withdraw!
++          expect(request.reload.withdrawn_at).to be_within(1.second).of(Time.current)
++        end
++      end
++
++      it "cannot withdraw from accepted" do
++        request.accept!
++        expect { request.withdraw! }.to raise_error(AASM::InvalidTransition)
++      end
++    end
+   end
+ 
+   describe "scopes" do
 diff --git a/app_echo/spec/services/requests/withdraw_service_spec.rb b/app_echo/spec/services/requests/withdraw_service_spec.rb
 new file mode 100644
-index 0000000..c14982b
+index 0000000..b0a7f72
 --- /dev/null
 +++ b/app_echo/spec/services/requests/withdraw_service_spec.rb
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,68 @@
 +require "rails_helper"
 +
 +RSpec.describe Requests::WithdrawService do
@@ -190,15 +269,21 @@ index 0000000..c14982b
 +  describe "#call" do
 +    context "with correct provider and reason" do
 +      it "withdraws the request" do
-+        result = described_class.new(request: request, provider: provider, reason: "No longer available").call
++        result = described_class.new(request: request, provider: provider, reason: "Found another job").call
 +        expect(result[:success]).to be true
 +        expect(request.reload).to be_withdrawn
-+        expect(request.withdraw_reason).to eq("No longer available")
-+        expect(request.withdrawn_at).to be_present
++        expect(request.withdraw_reason).to eq("Found another job")
++      end
++
++      it "sets withdrawn_at timestamp" do
++        freeze_time do
++          described_class.new(request: request, provider: provider, reason: "Found another job").call
++          expect(request.reload.withdrawn_at).to be_within(1.second).of(Time.current)
++        end
 +      end
 +
 +      it "notifies the client" do
-+        described_class.new(request: request, provider: provider, reason: "No longer available").call
++        described_class.new(request: request, provider: provider, reason: "Found another job").call
 +        expect(read_notification_log).to include("event=response_withdrawn")
 +      end
 +    end
@@ -212,30 +297,30 @@ index 0000000..c14982b
 +    end
 +
 +    context "when request is not linked to an announcement" do
-+      let(:request) { create(:request, provider: provider) }
++      let(:direct_request) { create(:request, provider: provider) }
 +
 +      it "returns error" do
-+        result = described_class.new(request: request, provider: provider, reason: "Changed my mind").call
++        result = described_class.new(request: direct_request, provider: provider, reason: "Changed mind").call
 +        expect(result[:success]).to be false
 +        expect(result[:error]).to include("Can only withdraw responses to announcements")
 +      end
 +    end
 +
-+    context "when request belongs to another provider" do
++    context "when provider does not own the request" do
 +      let(:other_provider) { create(:provider) }
 +
 +      it "returns error" do
-+        result = described_class.new(request: request, provider: other_provider, reason: "Changed my mind").call
++        result = described_class.new(request: request, provider: other_provider, reason: "Changed mind").call
 +        expect(result[:success]).to be false
 +        expect(result[:error]).to include("Not your request")
 +      end
 +    end
 +
 +    context "when request is already accepted" do
-+      let(:request) { create(:request, :accepted, :announcement_response, provider: provider, announcement: announcement) }
++      let(:accepted_request) { create(:request, :accepted, :announcement_response, provider: provider, announcement: announcement) }
 +
 +      it "returns error" do
-+        result = described_class.new(request: request, provider: provider, reason: "Changed my mind").call
++        result = described_class.new(request: accepted_request, provider: provider, reason: "Changed mind").call
 +        expect(result[:success]).to be false
 +        expect(result[:error]).to include("Cannot withdraw request in accepted state")
 +      end

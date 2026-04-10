@@ -3,38 +3,38 @@
 
 ---
 
-This is a **service marketplace platform** — a two-sided marketplace connecting **Clients** (who need services) with **Providers** (who deliver them). The domain appears derived from a childcare/kids-activities context (Kidsout), generalized into neutral naming.
+This is a **service marketplace platform** — a Rails app that connects **clients** who need services with **providers** who deliver them. Think of it like a booking platform (similar to a freelance services marketplace or appointment-booking system). Currency defaults to RUB, suggesting a Russian market.
 
 ## Main Entities
 
-- **Client** — a customer who needs a service. Has payment cards, notification preferences.
-- **Provider** — a service professional with a rating, specialization, and active/inactive status.
-- **Card** — a client's stored payment card (tokenized, with last-four, brand, expiry).
+- **Client** — a person who needs a service. Has saved payment cards and notification preferences.
+- **Provider** — a service professional. Has a specialization, rating, and active/inactive status.
+- **Card** — a client's saved payment card (tokenized).
 
 ## Two Booking Flows
 
-**1. Direct Request (client → specific provider)**
-- **Request** — a client asks a specific provider for a booking at a given time/duration/location. State machine: `pending → accepted/declined/expired`.
-- If accepted, it can lead to an **Order**.
+**1. Direct Request (client-initiated)**
+- **Request** — a client sends a booking request directly to a specific provider (with schedule, duration, location).
+- The provider can **accept** or **decline**; unhandled requests **expire**.
+- Accepting a request leads to creating an **Order**.
 
-**2. Open Announcement (client → marketplace)**
-- **Announcement** — a client posts an open listing (title, description, budget, schedule). State machine: `draft → published → closed`.
-- **Response** — a provider bids on an announcement with an optional proposed price. State machine: `pending → selected/rejected`. One response per provider per announcement.
-- A selected response can also lead to an Order.
+**2. Announcement (broadcast/bidding)**
+- **Announcement** — a client posts a job announcement (draft → published → closed) with a budget, description, schedule, and location.
+- **Response** — providers respond to announcements, optionally proposing a different price. The client can **select** one response or **reject** others. Selecting a response also leads to an Order.
 
-## Fulfillment & Payment
+## Order Lifecycle
 
-- **Order** — the confirmed booking, linked to a client, provider, and optionally a request. Has pricing (`amount_cents`, `currency: RUB`). State machine: `pending → confirmed → in_progress → completed`, with `canceled`/`rejected` branches.
-- **Payment** — tracks money flow for an order. Status lifecycle: `pending → held → charged`, with a `refunded` path. Supports hold-then-charge (pre-authorization before the service starts).
-- **Review** — polymorphic author (client or provider) leaves a rating + text on a completed order. One review per author per order.
+**Order** follows a state machine: `pending → confirmed → in_progress → completed`, with `canceled` and `rejected` as terminal states. Each order has:
+- **Payment** — tracks money flow with states for pending, held, charged, and refunded.
+- **Review** — polymorphic (both client and provider can leave reviews with a rating and body).
 
 ## Typical Workflow
 
-1. **Client registers**, adds a payment card
-2. **Option A**: Client sends a **Request** to a specific provider → provider accepts → **Order** is created
-3. **Option B**: Client creates an **Announcement** → publishes it → providers submit **Responses** → client selects a response → **Order** is created
-4. Order is **confirmed** → **started** → **completed**
-5. **Payment** is held before the service, charged on completion (or refunded on cancellation)
-6. Both parties leave **Reviews**
+1. Client either sends a **Request** to a specific provider, or publishes an **Announcement** for providers to bid on.
+2. Provider accepts the request (or client selects a provider's response to an announcement).
+3. An **Order** is created with amount, schedule, and duration.
+4. A **Payment** is created (hold → charge flow via a payment gateway).
+5. The order progresses: confirmed → started → completed.
+6. Both parties can leave **Reviews**.
 
-The API is token-authenticated (via `api_token` on clients/providers), with a read-only **Admin** panel for dashboard, browsing orders, requests, clients, providers, payments, and announcements.
+Notifications are sent at key state transitions via a `NotificationService`.

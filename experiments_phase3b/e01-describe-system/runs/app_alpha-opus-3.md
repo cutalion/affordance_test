@@ -3,30 +3,24 @@
 
 ---
 
-Here's what this system does:
+This is a **service booking/appointment platform** built with Rails.
 
 ## Domain
 
-This is a **service booking marketplace** — a two-sided platform where **Clients** book time with **Providers**. Based on the memory and repo context, the domain is derived from "Kidsout" (likely a childcare/babysitting service), but the app uses generic naming.
+A marketplace where **clients** book time-based services from **providers** (think: home services, consultations, tutoring — the specific service type is generic).
 
 ## Main Entities
 
-- **Client** — A customer who creates service requests. Has an email, phone, API token for authentication, and notification preferences (push/sms/email). Can store multiple payment cards.
-- **Provider** — A service provider who fulfills requests. Has a specialization, rating (0–5), active/inactive status, and their own API token and notification preferences.
-- **Request** — The central entity connecting a Client to a Provider. Represents a booking for a specific time (`scheduled_at`), duration (`duration_minutes`), and location. Has a state machine with four states.
-- **Card** — A stored payment card belonging to a Client (brand, last four digits, expiration, tokenized). One card can be marked as the default.
+- **Client** — a person who requests services. Has an email, phone, API token for authentication, notification preferences (push/sms/email), and payment cards.
+- **Provider** — a service professional who fulfills requests. Has a rating (0–5), specialization, active flag, and their own notification preferences.
+- **Request** — the core entity: a booking from a client to a specific provider, with a scheduled time, duration, location, and notes. Has a state machine: `pending → accepted | declined | expired`.
+- **Card** — a client's stored payment card (tokenized, with brand/last-four/expiry). One card can be marked as default.
 
 ## Typical Workflow
 
-1. A **Client** creates a **Request**, specifying a provider, scheduled time, duration, location, and optional notes.
-2. The Request starts in **`pending`** state.
-3. The **Provider** can:
-   - **Accept** it → transitions to `accepted`, records `accepted_at` timestamp
-   - **Decline** it → transitions to `declined`, requires a `decline_reason`
-4. If neither happens, the request can **expire** → transitions to `expired`, records `expired_at`.
+1. **Client registers** via the API and adds payment cards.
+2. **Client creates a Request** — picks a provider, time slot, duration, location. The request starts in `pending` state. The provider is notified.
+3. **Provider responds** — either **accepts** (client gets notified) or **declines** with a reason. Requests can also **expire** if the provider doesn't respond.
+4. **Admin dashboard** — a read-only admin panel for viewing requests, clients, and providers.
 
-## API Surface
-
-The app exposes two interfaces:
-- **API** (`api/`) — token-authenticated endpoints for clients, providers, requests, and cards (programmatic access)
-- **Admin** (`admin/`) — dashboard plus management of requests, clients, and providers
+Authentication is token-based (API tokens on both client and provider). Notifications are currently stubbed — they log to a file rather than actually sending push/sms/email.

@@ -6,22 +6,23 @@
 
 ## Claude Output
 
-All 127 tests pass. Here's a summary of the changes:
+Here's a summary of the changes:
 
-**Migration**: Added `cancellation_fee_cents` column to `orders` (default 0).
+**Migration** — `db/migrate/20260410120000_add_cancellation_fee_cents_to_payments.rb`: Adds `cancellation_fee_cents` integer column (default 0) to the payments table.
 
-**Order model** (`app/models/order.rb`):
-- `late_cancellation?` — returns true if `scheduled_at` is within 24 hours
-- `cancellation_fee` — returns 50% of `amount_cents`
+**`Orders::CancelService`** — Two new private methods:
+- `late_cancellation?` — returns true if `scheduled_at` is within 24 hours from now
+- `cancellation_fee_cents` — calculates 50% of the order amount
+- The `call` method now branches: late cancellations charge the fee via `PaymentGateway.charge_cancellation_fee`; early cancellations still get a full refund
 
-**CancelService** (`app/services/orders/cancel_service.rb`):
-- On late cancellation, sets `cancellation_fee_cents` on the order
-- If a payment is held, reduces the payment amount to the fee and charges it (instead of refunding)
-- If no late cancellation, refunds as before
+**`PaymentGateway`** — New `charge_cancellation_fee(payment, fee_cents)` method that records the fee on the payment, charges the payment (status → "charged"), and logs the fee and refund amounts.
 
-**API response**: `cancellation_fee_cents` is included in the order detail JSON.
+**API response** — `cancellation_fee_cents` is now included in the payment JSON within the order detail endpoint.
 
-**Tests**: Added specs for late cancellation fee charging, fee amount correctness, and early cancellation still getting a full refund.
+**Tests** — 3 new test cases:
+- Cancellation within 24 hours charges 50% fee (held payment)
+- Cancellation within 24 hours charges 50% fee (charged payment)
+- Boundary case: exactly 24 hours is treated as late (fee applies)
 
 ---
 
@@ -29,112 +30,106 @@ All 127 tests pass. Here's a summary of the changes:
 
 ```diff
 diff --git a/app_bravo/app/controllers/api/orders_controller.rb b/app_bravo/app/controllers/api/orders_controller.rb
-index 2418afc..d2f04c5 100644
+index 2418afc..692744c 100644
 --- a/app_bravo/app/controllers/api/orders_controller.rb
 +++ b/app_bravo/app/controllers/api/orders_controller.rb
-@@ -140,6 +140,7 @@ def order_detail_json(order)
-         amount_cents: order.amount_cents,
-         currency: order.currency,
-         cancel_reason: order.cancel_reason,
-+        cancellation_fee_cents: order.cancellation_fee_cents,
-         reject_reason: order.reject_reason,
-         started_at: order.started_at,
-         completed_at: order.completed_at,
-diff --git a/app_bravo/app/models/order.rb b/app_bravo/app/models/order.rb
-index 0fc2547..5fdc64c 100644
---- a/app_bravo/app/models/order.rb
-+++ b/app_bravo/app/models/order.rb
-@@ -62,4 +62,12 @@ class Order < ApplicationRecord
-       transitions from: [:confirmed, :in_progress], to: :rejected
-     end
-   end
-+
-+  def late_cancellation?
-+    scheduled_at <= 24.hours.from_now
-+  end
-+
-+  def cancellation_fee
-+    (amount_cents * 0.5).round
-+  end
- end
+@@ -149,6 +149,7 @@ def order_detail_json(order)
+           id: order.payment.id,
+           status: order.payment.status,
+           amount_cents: order.payment.amount_cents,
++          cancellation_fee_cents: order.payment.cancellation_fee_cents,
+           currency: order.payment.currency
+         } : nil,
+         created_at: order.created_at,
 diff --git a/app_bravo/app/services/orders/cancel_service.rb b/app_bravo/app/services/orders/cancel_service.rb
-index e04c1bc..835a7d1 100644
+index e04c1bc..8a62df9 100644
 --- a/app_bravo/app/services/orders/cancel_service.rb
 +++ b/app_bravo/app/services/orders/cancel_service.rb
-@@ -11,12 +11,15 @@ def call
-       return error("Cancel reason is required") if @reason.blank?
+@@ -14,7 +14,11 @@ def call
+       @order.cancel!
  
-       @order.cancel_reason = @reason
--      @order.cancel!
- 
--      if @order.payment && %w[held charged].include?(@order.payment.status)
+       if @order.payment && %w[held charged].include?(@order.payment.status)
 -        PaymentGateway.refund(@order.payment)
-+      if @order.late_cancellation?
-+        @order.cancellation_fee_cents = @order.cancellation_fee
++        if late_cancellation?
++          PaymentGateway.charge_cancellation_fee(@order.payment, cancellation_fee_cents)
++        else
++          PaymentGateway.refund(@order.payment)
++        end
        end
  
-+      @order.cancel!
-+
-+      handle_payment_after_cancellation
-+
        NotificationService.notify(@order.provider, :order_canceled, order_id: @order.id)
-       { success: true, order: @order }
-     rescue AASM::InvalidTransition
-@@ -25,6 +28,21 @@ def call
+@@ -25,6 +29,14 @@ def call
  
      private
  
-+    def handle_payment_after_cancellation
-+      return unless @order.payment
-+      return unless %w[held charged].include?(@order.payment.status)
++    def late_cancellation?
++      @order.scheduled_at <= 24.hours.from_now
++    end
 +
-+      if @order.cancellation_fee_cents > 0
-+        @order.payment.update!(
-+          amount_cents: @order.cancellation_fee_cents,
-+          fee_cents: @order.cancellation_fee_cents
-+        )
-+        PaymentGateway.charge(@order.payment) if @order.payment.status == "held"
-+      else
-+        PaymentGateway.refund(@order.payment)
-+      end
++    def cancellation_fee_cents
++      (@order.amount_cents * 0.5).to_i
 +    end
 +
      def error(message)
        { success: false, error: message }
      end
-diff --git a/app_bravo/db/migrate/20260409154202_add_cancellation_fee_to_orders.rb b/app_bravo/db/migrate/20260409154202_add_cancellation_fee_to_orders.rb
+diff --git a/app_bravo/app/services/payment_gateway.rb b/app_bravo/app/services/payment_gateway.rb
+index 3530c85..95cd1f3 100644
+--- a/app_bravo/app/services/payment_gateway.rb
++++ b/app_bravo/app/services/payment_gateway.rb
+@@ -13,6 +13,10 @@ def self.refund(payment)
+     new(payment).refund
+   end
+ 
++  def self.charge_cancellation_fee(payment, fee_cents)
++    new(payment).charge_cancellation_fee(fee_cents)
++  end
++
+   def initialize(payment)
+     @payment = payment
+   end
+@@ -43,6 +47,16 @@ def refund
+     { success: true }
+   end
+ 
++  def charge_cancellation_fee(fee_cents)
++    return { success: false, error: "Payment not chargeable" } unless %w[held charged].include?(@payment.status)
++
++    @payment.update!(cancellation_fee_cents: fee_cents)
++    @payment.charge!
++    refund_amount = @payment.amount_cents - fee_cents
++    log("cancellation_fee", "payment_id=#{@payment.id} fee=#{fee_cents} refund=#{refund_amount}")
++    { success: true }
++  end
++
+   private
+ 
+   def log(action, message)
+diff --git a/app_bravo/db/migrate/20260410120000_add_cancellation_fee_cents_to_payments.rb b/app_bravo/db/migrate/20260410120000_add_cancellation_fee_cents_to_payments.rb
 new file mode 100644
-index 0000000..198ba55
+index 0000000..a7827c8
 --- /dev/null
-+++ b/app_bravo/db/migrate/20260409154202_add_cancellation_fee_to_orders.rb
++++ b/app_bravo/db/migrate/20260410120000_add_cancellation_fee_cents_to_payments.rb
 @@ -0,0 +1,5 @@
-+class AddCancellationFeeToOrders < ActiveRecord::Migration[8.1]
++class AddCancellationFeeCentsToPayments < ActiveRecord::Migration[8.1]
 +  def change
-+    add_column :orders, :cancellation_fee_cents, :integer, default: 0, null: false
++    add_column :payments, :cancellation_fee_cents, :integer, default: 0, null: false
 +  end
 +end
 diff --git a/app_bravo/db/schema.rb b/app_bravo/db/schema.rb
-index 667709c..0b9b305 100644
+index cff169b..193a2d9 100644
 --- a/app_bravo/db/schema.rb
 +++ b/app_bravo/db/schema.rb
 @@ -10,7 +10,7 @@
  #
  # It's strongly recommended that you check this file into your version control system.
  
--ActiveRecord::Schema[8.1].define(version: 2026_04_09_075820) do
-+ActiveRecord::Schema[8.1].define(version: 2026_04_09_154202) do
+-ActiveRecord::Schema[8.1].define(version: 2026_04_08_140806) do
++ActiveRecord::Schema[8.1].define(version: 2026_04_10_120000) do
    create_table "cards", force: :cascade do |t|
      t.string "brand", null: false
      t.integer "client_id", null: false
-@@ -39,6 +39,7 @@
-   create_table "orders", force: :cascade do |t|
-     t.integer "amount_cents", null: false
-     t.text "cancel_reason"
-+    t.integer "cancellation_fee_cents", default: 0, null: false
-     t.integer "client_id", null: false
-     t.datetime "completed_at"
-     t.datetime "created_at", null: false
-@@ -62,6 +63,7 @@
+@@ -62,6 +62,7 @@
  
    create_table "payments", force: :cascade do |t|
      t.integer "amount_cents", null: false
@@ -142,63 +137,55 @@ index 667709c..0b9b305 100644
      t.integer "card_id"
      t.datetime "charged_at"
      t.datetime "created_at", null: false
-@@ -115,6 +117,8 @@
-     t.datetime "expired_at"
-     t.string "location"
-     t.text "notes"
-+    t.text "proposal_reason"
-+    t.datetime "proposed_scheduled_at"
-     t.integer "provider_id", null: false
-     t.integer "recurring_booking_id"
-     t.datetime "scheduled_at", null: false
 diff --git a/app_bravo/spec/services/orders/cancel_service_spec.rb b/app_bravo/spec/services/orders/cancel_service_spec.rb
-index b0ced7f..3fbcc6d 100644
+index b0ced7f..1f4eced 100644
 --- a/app_bravo/spec/services/orders/cancel_service_spec.rb
 +++ b/app_bravo/spec/services/orders/cancel_service_spec.rb
-@@ -24,12 +24,44 @@
+@@ -24,10 +24,45 @@
        let!(:card) { create(:card, :default, client: client) }
        let!(:payment) { create(:payment, :held, order: order, card: card) }
  
 -      it "refunds the held payment" do
-+      it "refunds the held payment when canceled early" do
++      it "refunds the held payment when canceled more than 24 hours before scheduled time" do
          described_class.new(order: order, client: client, reason: "Changed my mind").call
          expect(payment.reload.status).to eq("refunded")
        end
-     end
- 
-+    context "when canceled within 24 hours of scheduled time (late cancellation)" do
-+      let(:order) { create(:order, client: client, provider: provider, scheduled_at: 12.hours.from_now, amount_cents: 100_000) }
 +
-+      it "sets a 50% cancellation fee" do
-+        result = described_class.new(order: order, client: client, reason: "Last minute change").call
-+        expect(result[:success]).to be true
-+        expect(order.reload.cancellation_fee_cents).to eq(50_000)
-+      end
++      context "when canceled within 24 hours of scheduled time" do
++        let(:order) { create(:order, client: client, provider: provider, scheduled_at: 12.hours.from_now) }
 +
-+      context "with a held payment" do
-+        let!(:card) { create(:card, :default, client: client) }
-+        let!(:payment) { create(:payment, :held, order: order, card: card, amount_cents: 100_000) }
-+
-+        it "charges the cancellation fee instead of refunding" do
-+          described_class.new(order: order, client: client, reason: "Last minute change").call
++        it "charges a 50% cancellation fee" do
++          described_class.new(order: order, client: client, reason: "Changed my mind").call
 +          payment.reload
 +          expect(payment.status).to eq("charged")
-+          expect(payment.amount_cents).to eq(50_000)
++          expect(payment.cancellation_fee_cents).to eq(order.amount_cents / 2)
 +        end
 +      end
 +    end
 +
-+    context "when canceled more than 24 hours before scheduled time" do
-+      let(:order) { create(:order, client: client, provider: provider, scheduled_at: 3.days.from_now, amount_cents: 100_000) }
++    context "when payment is charged and canceled within 24 hours" do
++      let(:order) { create(:order, client: client, provider: provider, scheduled_at: 6.hours.from_now) }
++      let!(:card) { create(:card, :default, client: client) }
++      let!(:payment) { create(:payment, :charged, order: order, card: card) }
 +
-+      it "does not charge a cancellation fee" do
-+        result = described_class.new(order: order, client: client, reason: "Changed my mind").call
-+        expect(result[:success]).to be true
-+        expect(order.reload.cancellation_fee_cents).to eq(0)
++      it "charges a 50% cancellation fee instead of refunding" do
++        described_class.new(order: order, client: client, reason: "Emergency").call
++        payment.reload
++        expect(payment.cancellation_fee_cents).to eq(order.amount_cents / 2)
 +      end
 +    end
 +
++    context "when canceled at exactly 24 hours before scheduled time" do
++      let(:order) { create(:order, client: client, provider: provider, scheduled_at: 24.hours.from_now) }
++      let!(:card) { create(:card, :default, client: client) }
++      let!(:payment) { create(:payment, :held, order: order, card: card) }
++
++      it "charges the cancellation fee (boundary is inclusive)" do
++        described_class.new(order: order, client: client, reason: "Changed my mind").call
++        payment.reload
++        expect(payment.cancellation_fee_cents).to eq(order.amount_cents / 2)
++      end
+     end
+ 
      it "notifies the provider" do
-       described_class.new(order: order, client: client, reason: "Changed my mind").call
-       expect(read_notification_log).to include("event=order_canceled")
 ```

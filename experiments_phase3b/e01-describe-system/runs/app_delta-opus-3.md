@@ -3,35 +3,37 @@
 
 ---
 
-This is a **service marketplace platform** — a two-sided marketplace connecting **Clients** (who need services) with **Providers** (who deliver them). The domain is inspired by Kidsout (likely a babysitting/childcare service) but generalized.
+This is a **service marketplace platform** (Rails 8.1) that connects **clients** with **service providers** — think of it as a booking system for on-demand services (similar to cleaning, tutoring, or personal services).
 
 ## Main Entities
 
-- **Client** — a person who needs a service. Has payment cards, notification preferences.
-- **Provider** — a service professional with a specialization, rating, and active/inactive status.
+- **Client** — person who needs a service. Has saved payment cards and notification preferences.
+- **Provider** — person who delivers a service. Has a specialization, rating, and active status.
 - **Card** — a client's saved payment method (tokenized).
 
-## Core Workflows
+## Two Ways to Book
 
-There are **three ways** a client can engage a provider:
+**1. Direct Request (client → specific provider)**
+- **Request** — a client asks a specific provider for a time slot (`pending → accepted / declined / expired`). If accepted, it leads to an Order.
 
-### 1. Direct Request (Client → specific Provider)
-A **Client** sends a **Request** to a specific **Provider** for a given time/location/duration. The provider can **accept**, **decline**, or let it **expire**. An accepted request can lead to an **Order**.
+**2. Announcement (client → open market)**
+- **Announcement** — a client posts a job to the marketplace (`draft → published → closed`).
+- **Response** — providers bid on the announcement with a proposed price and message (`pending → selected / rejected`). The client picks a winner.
 
-### 2. Announcement (Client → open market)
-A **Client** posts an **Announcement** (draft → published → closed) describing what they need, with an optional budget. Multiple **Providers** submit **Responses** (with optional counter-pricing). The client **selects** one response and **rejects** the rest. The selected response leads to an Order.
+## Fulfillment
 
-### 3. Direct Order / Recurring Booking
-A **Client** can create an **Order** directly with a known provider. Orders can also be created via **RecurringBooking** (a series of sessions with the same provider).
+- **Order** — the confirmed booking between a client and provider (`pending → confirmed → in_progress → completed`, or `canceled / rejected`). Can originate from either a Request or an Announcement.
+- **Payment** — tracks money for an order with hold/charge/refund lifecycle (`pending → held → charged`, or `refunded`). Includes a platform fee.
+- **Review** — polymorphic; both client and provider can review each other after order completion.
 
-## Order Lifecycle
-`pending → confirmed → in_progress → completed` (or `canceled`/`rejected` at various stages)
+## Typical Workflow
 
-## Payment Lifecycle
-Tied 1:1 to an Order: `pending → held → charged → refunded`
+1. Client creates a **Request** to a specific provider (or publishes an **Announcement** for bids)
+2. Provider **accepts** the request (or submits a **Response** to the announcement, client **selects** one)
+3. An **Order** is created with the agreed amount, time, and location
+4. The order is **confirmed**, a **Payment** hold is placed on the client's card
+5. Provider **starts** and then **completes** the order
+6. Payment is **charged**
+7. Both parties leave **Reviews**
 
-## Reviews
-Both clients and providers can leave **Reviews** (polymorphic author) with a rating and body text after an order completes.
-
-## API
-The app is an **API-only Rails app** with token-based auth, exposing RESTful endpoints for all entities under `Api::`.
+The platform takes a fee on each payment and has an admin panel for managing clients, providers, orders, payments, requests, and announcements.

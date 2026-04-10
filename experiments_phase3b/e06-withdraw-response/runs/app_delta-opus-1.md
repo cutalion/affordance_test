@@ -6,17 +6,20 @@
 
 ## Claude Output
 
-All 181 tests pass. Here's what was implemented:
+All 181 tests pass (8 new, 173 existing). Here's a summary of the changes:
 
-**Model** (`app/models/response.rb`): Added `withdrawn` state and `withdraw` event, allowing transition from `pending` to `withdrawn`.
+**Model** (`app/models/response.rb`): Added `withdrawn` state and `withdraw` event that transitions from `pending` to `withdrawn`.
 
-**Service** (`app/services/responses/withdraw_service.rb`): New `WithdrawService` that verifies the provider owns the response, transitions it to `withdrawn`, and notifies the client.
+**Service** (`app/services/responses/withdraw_service.rb`): New service that:
+- Verifies the provider owns the response
+- Transitions the response to `withdrawn` state
+- Notifies the announcement's client that the response was withdrawn
 
-**Controller** (`app/controllers/api/responses_controller.rb`): Added `withdraw` action requiring provider authentication, delegating to the service.
+**Controller** (`app/controllers/api/responses_controller.rb`): Added `withdraw` action, provider-authenticated (mirrors `select`/`reject` pattern).
 
-**Route** (`config/routes.rb`): Added `PATCH /api/responses/:id/withdraw`.
+**Route** (`config/routes.rb`): `PATCH /api/responses/:id/withdraw`
 
-**Tests**: Model specs for the withdraw state transition (3 cases), service specs covering success, wrong provider, already selected, and already rejected scenarios (4 cases).
+**Specs**: Model state machine tests (3 cases) and service tests (4 cases covering happy path, wrong provider, already selected, already rejected).
 
 ---
 
@@ -158,7 +161,7 @@ index 43a940a..c296ad7 100644
  end
 diff --git a/app_delta/spec/services/responses/withdraw_service_spec.rb b/app_delta/spec/services/responses/withdraw_service_spec.rb
 new file mode 100644
-index 0000000..af3c14a
+index 0000000..0b5a0bf
 --- /dev/null
 +++ b/app_delta/spec/services/responses/withdraw_service_spec.rb
 @@ -0,0 +1,52 @@
@@ -185,7 +188,7 @@ index 0000000..af3c14a
 +      end
 +    end
 +
-+    context "when provider does not own the response" do
++    context "when provider does not own response" do
 +      let(:other_provider) { create(:provider) }
 +      subject(:result) { described_class.new(response: response, provider: other_provider).call }
 +

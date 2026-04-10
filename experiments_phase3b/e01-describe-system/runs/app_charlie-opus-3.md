@@ -3,30 +3,40 @@
 
 ---
 
-This is a **service marketplace / booking platform** — a Rails API app where clients book service providers for scheduled appointments.
+This is a **service marketplace / booking platform** built as a Rails 8.1 API application. Here's the breakdown:
 
 ## Domain
 
-A two-sided marketplace connecting **Clients** (who need services) with **Providers** (who deliver them). Based on the Kidsout domain, this likely models something like babysitting or childcare services, though the entities are generalized.
+A two-sided marketplace connecting **Clients** (who need services) with **Providers** (who deliver them). The default currency is RUB, suggesting a Russian market context.
 
 ## Main Entities
 
-- **Client** — a customer who books services. Has payment cards, notification preferences, and API token auth.
-- **Provider** — a service professional with a specialization, rating (0–5), and active/inactive status.
-- **Request** — the central entity. A client creates a request for a specific provider at a scheduled time, with a duration and price. This is the booking itself.
-- **Payment** — tracks money for a request. Follows a `pending → held → charged → refunded` lifecycle, with fee tracking.
-- **Card** — a client's stored payment method (tokenized, with brand/last-four/expiry).
-- **Review** — polymorphic by author (either client or provider can review), tied to a completed request. One review per author per request.
+- **Client** — registers, stores payment cards, creates service requests, leaves reviews
+- **Provider** — registers with a specialization, has a rating, accepts/declines work
+- **Card** — client's payment card (tokenized, with a default flag)
+- **Request** — the core entity: a booking for a provider at a scheduled time, with duration and price
+- **Payment** — tied to a request; goes through pending → held → charged (or refunded), with a fee
+- **Review** — polymorphic author (client or provider), with a rating and body, tied to a request
+
+## Request Lifecycle (State Machine)
+
+```
+pending → accepted → in_progress → completed
+  │          │           │
+  ├→ declined │           └→ rejected
+  ├→ expired  ├→ canceled
+  └→ canceled └→ rejected
+```
+
+A client creates a request for a specific provider. The provider can **accept** or **decline**. Once accepted, the provider **starts** the work, then marks it **complete**. Either party can **cancel** (before start) or **reject** (after acceptance). Unattended requests can **expire**.
 
 ## Typical Workflow
 
-1. **Client creates a Request** — specifying provider, scheduled time, duration, amount, and optional notes/location.
-2. **Provider accepts or declines** — the request starts as `pending`, then transitions to `accepted` (or `declined` with a reason).
-3. **Service begins** — request moves to `in_progress` when the session starts.
-4. **Service completes** — request moves to `completed`.
-5. **Payment flows in parallel** — a payment is created (`pending`), funds are held on the client's card (`held`), then charged upon completion (`charged`), or refunded if cancelled.
-6. **Reviews** — after completion, both client and provider can leave a rating and review.
+1. Client and provider register via the API (token-based auth)
+2. Client adds a payment card
+3. Client creates a **Request** — specifying provider, schedule, duration, amount, and location
+4. Provider accepts → payment is held on the client's card
+5. Provider starts and completes the service → payment is charged
+6. Both parties leave reviews
 
-Requests can also be `canceled` (by client, before or after acceptance), `rejected` (by provider, after acceptance), or `expired` (if never accepted). The app also supports recurring bookings via `recurring_group_id`.
-
-The app exposes both an **API** (token-authenticated, for the mobile/web client) and an **Admin** interface for back-office management.
+The app also has a read-only **admin panel** for monitoring requests, clients, providers, and payments, plus a **NotificationService** for sending notifications based on user preferences (push/SMS/email).

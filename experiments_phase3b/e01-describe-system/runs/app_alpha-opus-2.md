@@ -3,34 +3,25 @@
 
 ---
 
-Here's what this system does:
+This is a **service booking / appointment request platform** built with Rails.
 
-## Domain: Service Booking Platform
+## Domain
 
-This is a **client-to-provider booking system** — think of it like a marketplace where clients book time slots with service providers (derived from a childcare/kids-activity domain called "Kidsout").
+A marketplace connecting **Clients** (who need services) with **Providers** (who deliver services). Think of it as a simplified booking system like a home services or consulting platform.
 
 ## Main Entities
 
-- **Client** — a customer who books services. Has an email, name, API token for authentication, notification preferences, and payment cards.
-- **Provider** — a service provider who fulfills requests. Has a rating (0-5), active/inactive status, and notification preferences.
-- **Request** — the central entity. Represents a booking request from a client to a specific provider for a given time slot (`scheduled_at` + `duration_minutes`) at a location. Has a state machine lifecycle.
-- **Card** — a client's saved payment card (visa/mastercard/amex/mir). One card can be marked as default.
+- **Client** — registers with name/email, gets an API token, has payment cards, and submits service requests. Has configurable notification preferences (push/sms/email).
+- **Provider** — registers with name/email/specialization, has a rating (0–5), can be active/inactive. Receives and responds to requests.
+- **Card** — a payment card belonging to a client (brand, last four, expiry). One card can be marked as default.
+- **Request** — the central entity. A client asks a specific provider for a service at a scheduled time, with a duration, location, and notes. Follows a state machine: `pending` → `accepted` / `declined` / `expired`.
 
 ## Typical Workflow
 
-1. **Client creates a Request** — via `Requests::CreateService`, specifying a provider, scheduled time, duration, location, and notes. The provider is notified.
-2. **Provider accepts or declines:**
-   - **Accept** (`Requests::AcceptService`) — transitions the request from `pending` → `accepted`, records `accepted_at`, notifies the client.
-   - **Decline** (`Requests::DeclineService`) — requires a reason, transitions `pending` → `declined`, notifies the client.
-3. **Expiration** — pending requests that aren't acted on can transition to `expired`.
+1. **Client registers** via the API and adds a payment card.
+2. **Provider registers** and becomes available.
+3. **Client creates a Request** — picks a provider, scheduled time, duration, location, and notes. The provider is notified.
+4. **Provider responds** — either **accepts** (timestamps recorded) or **declines** (must give a reason). The client is notified of the outcome. Pending requests can also **expire**.
+5. **Admin dashboard** — a read-only admin interface to browse requests, clients, and providers.
 
-The state machine is: `pending` → `accepted` | `declined` | `expired`.
-
-Notifications (push/sms/email) are sent based on each recipient's preferences, currently stubbed to a log file.
-
-## Notable Details
-
-- No API controllers are defined yet — only models and services exist.
-- Authentication is token-based (API tokens on both Client and Provider).
-- The `Paginatable` concern is mixed into Request for list queries.
-- There are filtering scopes on Request: by state, client, provider, date range.
+Notifications are currently stubbed — they log to a file rather than actually sending push/sms/email. Authentication is token-based (API token per client/provider).

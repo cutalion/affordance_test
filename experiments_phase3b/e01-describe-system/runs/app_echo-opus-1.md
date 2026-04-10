@@ -3,26 +3,32 @@
 
 ---
 
-This is a **service marketplace** — a platform connecting **Clients** (who need services) with **Providers** (who deliver them). The domain resembles childcare/babysitting (derived from "Kidsout") but is abstracted with neutral names.
+Here's what this system does:
+
+## Domain
+
+This is a **service marketplace platform** — a Rails API that connects **clients** who need services with **providers** who deliver them. The default currency (RUB) suggests a Russian market. Think of it as a booking/scheduling system similar to platforms for home services, tutoring, or freelance work.
 
 ## Main Entities
 
-- **Client** — a person seeking services. Has payment cards, can post announcements and create requests. Authenticated via API token.
-- **Provider** — a service professional. Has a rating, specialization, and active/inactive status. Authenticated via API token.
-- **Announcement** — a public posting by a Client describing what they need (title, description, schedule, location, budget). Lifecycle: `draft → published → closed`.
-- **Request** — the core entity. Represents a booking between a Client and a specific Provider for a scheduled time slot, with agreed amount and duration. Can originate from an Announcement (provider responds) or be created directly.
-- **Payment** — one-to-one with a Request. Tracks money flow: `pending → held → charged → refunded`. Linked to a Card.
-- **Card** — a saved payment method for a Client (brand, last four, expiry). One can be marked as default.
-- **Review** — polymorphic, left by either Client or Provider after a completed Request. Rating 1-5 with optional text body. Each party can review once per request.
+- **Client** — a customer who books services, has payment cards on file, and can post announcements
+- **Provider** — a service professional with a rating (0-5), who accepts/declines work requests
+- **Request** — the central entity; a scheduled service booking between a client and a provider, with a time, duration, location, and price
+- **Announcement** — a client-posted listing (draft -> published -> closed) that providers can respond to, generating requests
+- **Payment** — tracks money for a request through a lifecycle: pending -> held -> charged (or refunded)
+- **Card** — a client's stored payment method (visa/mastercard/amex/mir), with one default card
+- **Review** — post-completion ratings (1-5) that either party can leave on a completed request
 
 ## Typical Workflow
 
-1. **Client posts an Announcement** (draft → publish) describing what they need, or directly creates a Request to a known Provider.
-2. **Provider responds** to an Announcement, which creates a Request linking them.
-3. **Request lifecycle**: `pending → accepted → in_progress → completed`
-   - Provider can **accept** or **decline** (with reason). Pending requests can **expire**.
-   - Either party can **cancel** (from pending/accepted). Provider can **reject** (from accepted/in_progress).
-4. **Payment** is created for the request — funds are held, then charged on completion (or refunded on cancellation).
-5. **After completion**, both Client and Provider can leave **Reviews**.
+1. **Client creates a request** — specifying a provider, schedule, duration, location, and price. The provider gets notified.
+2. **Provider accepts or declines** — declining requires a reason. Pending requests can also expire or be canceled by the client.
+3. **Provider starts the work** — transitions the accepted request to in-progress; the client is notified.
+4. **Provider completes the work** — if a payment was held, it gets charged automatically. Both parties are notified.
+5. **Either party leaves a review** — only possible on completed requests, one review per author per request.
 
-The app exposes two namespaces: an **API** (for client/provider-facing mobile/web apps) and an **Admin** panel (read-only dashboard for operators).
+Alternatively, a provider can **reject** an accepted/in-progress request (with a reason), which triggers a refund if payment was held or charged.
+
+There's also an **announcements** flow where clients publish listings that can generate requests from interested providers.
+
+The system exposes both an **API** (token-authenticated, for client/provider apps) and an **admin panel** (HTTP basic auth, for managing clients, providers, and payments).

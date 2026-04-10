@@ -5,43 +5,46 @@
 
 The main entity in this system is the **Order**. Here's the happy path, step by step:
 
-### 1. Client creates a Request
-- A **Client** submits a **Request** to a specific **Provider**, specifying `scheduled_at`, `duration_minutes`, location, and notes.
-- The Request starts in the **`pending`** state.
+---
 
-### 2. Provider accepts the Request
-- The **Provider** reviews and **accepts** the Request.
-- Request transitions to **`accepted`**, `accepted_at` is recorded.
-- Accepting a Request creates an **Order** (the Request `has_one :order`).
+### 1. Client registers and adds a payment card
+- A **Client** registers via `POST /api/clients/register` and receives an API token.
+- The client adds a **Card** via `POST /api/cards` and marks it as default (`PATCH /api/cards/:id/default`).
 
-### 3. Order is created (pending)
-- The Order is born in the **`pending`** state with `scheduled_at`, `duration_minutes`, `amount_cents`, `currency`, and a link back to the Request.
-- A **Payment** is created for the Order in **`pending`** status.
+### 2. Client creates a Request
+- The client sends `POST /api/requests` with a provider, scheduled time, duration, location, and notes.
+- `Requests::CreateService` saves the Request in **pending** state.
+- The **Provider** is notified (`request_created`).
+
+### 3. Provider accepts the Request
+- The provider calls `PATCH /api/requests/:id/accept`.
+- `Requests::AcceptService` transitions the Request from **pending** → **accepted** (sets `accepted_at`).
+- Inside the same transaction, it automatically creates an **Order** (via `Orders::CreateService`) with `amount_cents: 350_000` (3,500 RUB) and a linked **Payment** record (status: `pending`, with a 10% fee calculated).
+- The client is notified (`request_accepted`).
+- The provider is notified (`order_created`).
 
 ### 4. Provider confirms the Order
-- The Provider **confirms** the Order.
-- Order transitions to **`confirmed`**.
-- The Payment is **held** (`status: "held"`, `held_at` recorded) — funds are reserved on the Client's Card.
+- The provider calls `PATCH /api/orders/:id/confirm`.
+- `Orders::ConfirmService` transitions the Order from **pending** → **confirmed**.
+- The client is notified (`order_confirmed`).
 
 ### 5. Provider starts the Order
-- When the scheduled time arrives, the Provider **starts** the work.
-- Order transitions to **`in_progress`**, `started_at` is recorded.
+- The provider calls `PATCH /api/orders/:id/start`.
+- `Orders::StartService` transitions the Order from **confirmed** → **in_progress** (sets `started_at`).
+- The client is notified (`order_started`).
 
 ### 6. Provider completes the Order
-- The Provider marks the Order as **complete**.
-- Order transitions to **`completed`**, `completed_at` is recorded.
-- The Payment is **charged** (`status: "charged"`, `charged_at` recorded).
+- The provider calls `PATCH /api/orders/:id/complete`.
+- `Orders::CompleteService` transitions the Order from **in_progress** → **completed** (sets `completed_at`).
+- If the payment was in **held** status, `PaymentGateway.charge` is called, moving it to **charged** (sets `charged_at`).
+- Both client and provider are notified (`order_completed`).
 
-### 7. Both parties leave Reviews
-- Once the Order is `completed`, both the **Client** and **Provider** can submit a **Review** (rating 1-5, optional body).
-- Each party can review the Order exactly once (uniqueness on `order_id` + `author_type` + `author_id`).
+### 7. Review
+- Either party can leave a **Review** on the completed order via `POST /api/orders/:id/reviews` with a rating and body. Each author can leave only one review per order (enforced by a unique index on `[order_id, author_type, author_id]`).
 
 ---
 
-**State flow summary:**
-
-```
-Request:  pending → accepted
-Order:    pending → confirmed → in_progress → completed
-Payment:  pending → held → charged
-```
+**State summary:**
+- **Request:** `pending` → `accepted`
+- **Order:** `pending` → `confirmed` → `in_progress` → `completed`
+- **Payment:** `pending` → `held` → `charged`

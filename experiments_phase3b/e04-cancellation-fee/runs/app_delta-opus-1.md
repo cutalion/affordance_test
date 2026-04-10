@@ -6,117 +6,150 @@
 
 ## Claude Output
 
-All 178 tests pass. Here's a summary of the changes:
+All 182 tests pass. Here's a summary of what was implemented:
 
-**Migration** — Added `cancellation_fee_cents` (integer, default 0) to `orders` table.
+**Cancellation fee: 50% charge when canceling within 24 hours of scheduled time**
 
-**`Orders::CancelService`** — When a booking is canceled within 24 hours of `scheduled_at`, sets `cancellation_fee_cents` to 50% of `amount_cents`. If a payment exists (held/charged), calls `PaymentGateway.charge_cancellation_fee` instead of a full refund. Cancellations more than 24 hours out still get a full refund with no fee.
+**Changes:**
 
-**`PaymentGateway`** — Added `charge_cancellation_fee(payment, fee_cents:)` class/instance method that marks the payment as refunded and logs the fee amount and partial refund amount.
+1. **Migration** (`db/migrate/20260408140809_add_cancellation_fee_cents_to_orders.rb`) — Added `cancellation_fee_cents` column to orders table.
 
-**Tests** — 5 new test cases covering: fee charged within 24h, payment refunded with fee, cancellation fee logged, no fee when >24h out, and fee recorded even without a payment.
+2. **`Orders::CancelService`** — When a booking is canceled within 24 hours of `scheduled_at`, a 50% cancellation fee is calculated and stored on the order. If a payment exists, a partial refund is issued (refunding only the non-fee portion). Cancellations more than 24 hours out still get a full refund with no fee.
+
+3. **`PaymentGateway`** — Added `.partial_refund(payment, refund_amount_cents)` for issuing partial refunds with proper logging.
+
+4. **`Payment` model** — Added `partial_refund!(refund_amount_cents)` which marks the payment as refunded and reduces `amount_cents` to reflect the retained fee.
+
+5. **Orders API response** — `cancellation_fee_cents` is now included in the order detail JSON.
+
+6. **Tests** — Added specs for cancellation fee calculation (within/beyond 24h), partial refund behavior, and payment gateway partial refund logging.
 
 ---
 
 ## Git Diff
 
 ```diff
+diff --git a/app_delta/app/controllers/api/orders_controller.rb b/app_delta/app/controllers/api/orders_controller.rb
+index 2418afc..d2f04c5 100644
+--- a/app_delta/app/controllers/api/orders_controller.rb
++++ b/app_delta/app/controllers/api/orders_controller.rb
+@@ -140,6 +140,7 @@ def order_detail_json(order)
+         amount_cents: order.amount_cents,
+         currency: order.currency,
+         cancel_reason: order.cancel_reason,
++        cancellation_fee_cents: order.cancellation_fee_cents,
+         reject_reason: order.reject_reason,
+         started_at: order.started_at,
+         completed_at: order.completed_at,
+diff --git a/app_delta/app/models/payment.rb b/app_delta/app/models/payment.rb
+index 5dec133..f7c8841 100644
+--- a/app_delta/app/models/payment.rb
++++ b/app_delta/app/models/payment.rb
+@@ -24,4 +24,12 @@ def charge!
+   def refund!
+     update!(status: "refunded", refunded_at: Time.current)
+   end
++
++  def partial_refund!(refund_amount_cents)
++    update!(
++      status: "refunded",
++      amount_cents: amount_cents - refund_amount_cents,
++      refunded_at: Time.current
++    )
++  end
+ end
 diff --git a/app_delta/app/services/orders/cancel_service.rb b/app_delta/app/services/orders/cancel_service.rb
-index e04c1bc..0eb9e75 100644
+index e04c1bc..f3861da 100644
 --- a/app_delta/app/services/orders/cancel_service.rb
 +++ b/app_delta/app/services/orders/cancel_service.rb
-@@ -11,12 +11,15 @@ def call
+@@ -11,10 +11,19 @@ def call
        return error("Cancel reason is required") if @reason.blank?
  
        @order.cancel_reason = @reason
--      @order.cancel!
++
++      fee_cents = calculate_cancellation_fee
++      @order.cancellation_fee_cents = fee_cents
++
+       @order.cancel!
  
--      if @order.payment && %w[held charged].include?(@order.payment.status)
+       if @order.payment && %w[held charged].include?(@order.payment.status)
 -        PaymentGateway.refund(@order.payment)
-+      if late_cancellation?
-+        @order.cancellation_fee_cents = @order.amount_cents / 2
++        if fee_cents > 0
++          refund_amount = @order.payment.amount_cents - fee_cents
++          PaymentGateway.partial_refund(@order.payment, refund_amount)
++        else
++          PaymentGateway.refund(@order.payment)
++        end
        end
  
-+      @order.cancel!
-+
-+      process_payment_refund
-+
        NotificationService.notify(@order.provider, :order_canceled, order_id: @order.id)
-       { success: true, order: @order }
-     rescue AASM::InvalidTransition
-@@ -25,6 +28,20 @@ def call
+@@ -25,6 +34,13 @@ def call
  
      private
  
-+    def late_cancellation?
-+      @order.scheduled_at <= 24.hours.from_now
-+    end
++    def calculate_cancellation_fee
++      return 0 unless @order.scheduled_at.present?
++      return 0 if @order.scheduled_at > 24.hours.from_now
 +
-+    def process_payment_refund
-+      return unless @order.payment && %w[held charged].include?(@order.payment.status)
-+
-+      if @order.cancellation_fee_cents > 0
-+        PaymentGateway.charge_cancellation_fee(@order.payment, fee_cents: @order.cancellation_fee_cents)
-+      else
-+        PaymentGateway.refund(@order.payment)
-+      end
++      (@order.amount_cents * 0.5).to_i
 +    end
 +
      def error(message)
        { success: false, error: message }
      end
 diff --git a/app_delta/app/services/payment_gateway.rb b/app_delta/app/services/payment_gateway.rb
-index 3530c85..9ce1a1b 100644
+index 3530c85..c0365d2 100644
 --- a/app_delta/app/services/payment_gateway.rb
 +++ b/app_delta/app/services/payment_gateway.rb
 @@ -13,6 +13,10 @@ def self.refund(payment)
      new(payment).refund
    end
  
-+  def self.charge_cancellation_fee(payment, fee_cents:)
-+    new(payment).charge_cancellation_fee(fee_cents)
++  def self.partial_refund(payment, refund_amount_cents)
++    new(payment).partial_refund(refund_amount_cents)
 +  end
 +
    def initialize(payment)
      @payment = payment
    end
-@@ -43,6 +47,15 @@ def refund
+@@ -43,6 +47,16 @@ def refund
      { success: true }
    end
  
-+  def charge_cancellation_fee(fee_cents)
++  def partial_refund(refund_amount_cents)
 +    return { success: false, error: "Payment not chargeable" } unless %w[held charged].include?(@payment.status)
++    return { success: false, error: "Invalid refund amount" } if refund_amount_cents <= 0 || refund_amount_cents > @payment.amount_cents
 +
-+    refund_amount = @payment.amount_cents - fee_cents
-+    @payment.refund!
-+    log("cancellation_fee", "payment_id=#{@payment.id} fee=#{fee_cents} refund=#{refund_amount}")
++    retained = @payment.amount_cents - refund_amount_cents
++    @payment.partial_refund!(refund_amount_cents)
++    log("partial_refund", "payment_id=#{@payment.id} refunded=#{refund_amount_cents} retained=#{retained}")
 +    { success: true }
 +  end
 +
    private
  
    def log(action, message)
-diff --git a/app_delta/db/migrate/20260409185948_add_cancellation_fee_cents_to_orders.rb b/app_delta/db/migrate/20260409185948_add_cancellation_fee_cents_to_orders.rb
+diff --git a/app_delta/db/migrate/20260408140809_add_cancellation_fee_cents_to_orders.rb b/app_delta/db/migrate/20260408140809_add_cancellation_fee_cents_to_orders.rb
 new file mode 100644
-index 0000000..3a8ae3b
+index 0000000..42611df
 --- /dev/null
-+++ b/app_delta/db/migrate/20260409185948_add_cancellation_fee_cents_to_orders.rb
++++ b/app_delta/db/migrate/20260408140809_add_cancellation_fee_cents_to_orders.rb
 @@ -0,0 +1,5 @@
 +class AddCancellationFeeCentsToOrders < ActiveRecord::Migration[8.1]
 +  def change
-+    add_column :orders, :cancellation_fee_cents, :integer, default: 0, null: false
++    add_column :orders, :cancellation_fee_cents, :integer, null: false, default: 0
 +  end
 +end
 diff --git a/app_delta/db/schema.rb b/app_delta/db/schema.rb
-index 7580f62..58db0df 100644
+index c5b443e..c121847 100644
 --- a/app_delta/db/schema.rb
 +++ b/app_delta/db/schema.rb
 @@ -10,7 +10,7 @@
  #
  # It's strongly recommended that you check this file into your version control system.
  
--ActiveRecord::Schema[8.1].define(version: 2026_04_09_140800) do
-+ActiveRecord::Schema[8.1].define(version: 2026_04_09_200000) do
+-ActiveRecord::Schema[8.1].define(version: 2026_04_08_140808) do
++ActiveRecord::Schema[8.1].define(version: 2026_04_08_140809) do
    create_table "announcements", force: :cascade do |t|
      t.integer "budget_cents"
      t.integer "client_id", null: false
@@ -128,79 +161,95 @@ index 7580f62..58db0df 100644
      t.integer "client_id", null: false
      t.datetime "completed_at"
      t.datetime "created_at", null: false
-@@ -137,6 +138,9 @@
-     t.datetime "expired_at"
-     t.string "location"
-     t.text "notes"
-+    t.text "proposal_reason"
-+    t.datetime "proposed_at"
-+    t.datetime "proposed_scheduled_at"
-     t.integer "provider_id", null: false
-     t.datetime "scheduled_at", null: false
-     t.string "state", default: "pending", null: false
 diff --git a/app_delta/spec/services/orders/cancel_service_spec.rb b/app_delta/spec/services/orders/cancel_service_spec.rb
-index b0ced7f..c42a6bc 100644
+index b0ced7f..b93d14e 100644
 --- a/app_delta/spec/services/orders/cancel_service_spec.rb
 +++ b/app_delta/spec/services/orders/cancel_service_spec.rb
-@@ -4,7 +4,7 @@
-   let(:client) { create(:client) }
-   let(:other_client) { create(:client) }
-   let(:provider) { create(:provider) }
--  let(:order) { create(:order, client: client, provider: provider) }
-+  let(:order) { create(:order, client: client, provider: provider, scheduled_at: 3.days.from_now) }
+@@ -30,6 +30,40 @@
+       end
+     end
  
-   describe "#call" do
-     it "cancels a pending order" do
-@@ -24,9 +24,50 @@
-       let!(:card) { create(:card, :default, client: client) }
-       let!(:payment) { create(:payment, :held, order: order, card: card) }
- 
--      it "refunds the held payment" do
-+      it "refunds the held payment fully when canceled early" do
-         described_class.new(order: order, client: client, reason: "Changed my mind").call
-         expect(payment.reload.status).to eq("refunded")
-+        expect(order.reload.cancellation_fee_cents).to eq(0)
-+      end
-+    end
-+
 +    context "cancellation fee" do
-+      let(:order_soon) { create(:order, :confirmed, client: client, provider: provider, scheduled_at: 12.hours.from_now, amount_cents: 400_000) }
++      let(:order_soon) { create(:order, client: client, provider: provider, scheduled_at: 12.hours.from_now, amount_cents: 200_000) }
 +      let!(:card) { create(:card, :default, client: client) }
-+      let!(:payment) { create(:payment, :held, order: order_soon, card: card, amount_cents: 400_000) }
++      let!(:payment) { create(:payment, :held, order: order_soon, card: card, amount_cents: 200_000) }
 +
 +      it "charges 50% fee when canceled within 24 hours of scheduled time" do
 +        result = described_class.new(order: order_soon, client: client, reason: "Emergency").call
 +        expect(result[:success]).to be true
-+        expect(order_soon.reload.cancellation_fee_cents).to eq(200_000)
++        expect(order_soon.reload.cancellation_fee_cents).to eq(100_000)
 +      end
 +
-+      it "refunds the payment with cancellation fee applied" do
++      it "partially refunds the payment when fee applies" do
 +        described_class.new(order: order_soon, client: client, reason: "Emergency").call
++        payment.reload
++        expect(payment.status).to eq("refunded")
++        expect(payment.amount_cents).to eq(100_000)
++      end
++
++      it "does not charge a fee when canceled more than 24 hours before" do
++        order_later = create(:order, client: client, provider: provider, scheduled_at: 3.days.from_now, amount_cents: 200_000)
++        result = described_class.new(order: order_later, client: client, reason: "Changed my mind").call
++        expect(result[:success]).to be true
++        expect(order_later.reload.cancellation_fee_cents).to eq(0)
++      end
++
++      it "fully refunds the payment when no fee applies" do
++        order_later = create(:order, client: client, provider: provider, scheduled_at: 3.days.from_now, amount_cents: 200_000)
++        later_payment = create(:payment, :held, order: order_later, card: card, amount_cents: 200_000)
++        described_class.new(order: order_later, client: client, reason: "Changed my mind").call
++        expect(later_payment.reload.status).to eq("refunded")
++        expect(later_payment.amount_cents).to eq(200_000)
++      end
++    end
++
+     it "notifies the provider" do
+       described_class.new(order: order, client: client, reason: "Changed my mind").call
+       expect(read_notification_log).to include("event=order_canceled")
+diff --git a/app_delta/spec/services/payment_gateway_spec.rb b/app_delta/spec/services/payment_gateway_spec.rb
+index 3f6ab9e..1d7f627 100644
+--- a/app_delta/spec/services/payment_gateway_spec.rb
++++ b/app_delta/spec/services/payment_gateway_spec.rb
+@@ -112,4 +112,41 @@
+       end
+     end
+   end
++
++  describe ".partial_refund" do
++    context "when payment is held" do
++      let(:card) { create(:card, :default, client: client) }
++      let(:payment) { create(:payment, :held, order: order, card: card, amount_cents: 200_000) }
++
++      it "returns success" do
++        result = PaymentGateway.partial_refund(payment, 100_000)
++        expect(result[:success]).to be true
++      end
++
++      it "updates payment status to refunded" do
++        PaymentGateway.partial_refund(payment, 100_000)
 +        expect(payment.reload.status).to eq("refunded")
 +      end
 +
-+      it "logs the cancellation fee" do
-+        described_class.new(order: order_soon, client: client, reason: "Emergency").call
-+        log = File.read(PaymentGateway::LOG_PATH.call)
-+        expect(log).to include("action=cancellation_fee")
-+        expect(log).to include("fee=200000")
-+        expect(log).to include("refund=200000")
++      it "reduces the payment amount by the refunded amount" do
++        PaymentGateway.partial_refund(payment, 100_000)
++        expect(payment.reload.amount_cents).to eq(100_000)
 +      end
 +
-+      it "does not charge fee when canceled more than 24 hours before" do
-+        order_far = create(:order, :confirmed, client: client, provider: provider, scheduled_at: 3.days.from_now, amount_cents: 400_000)
-+        payment_far = create(:payment, :held, order: order_far, card: card, amount_cents: 400_000)
-+        described_class.new(order: order_far, client: client, reason: "Changed plans").call
-+        expect(order_far.reload.cancellation_fee_cents).to eq(0)
-+        expect(payment_far.reload.status).to eq("refunded")
++      it "writes to payment log" do
++        PaymentGateway.partial_refund(payment, 100_000)
++        expect(read_payment_log).to include("[PAYMENT] action=partial_refund")
++        expect(read_payment_log).to include("refunded=100000")
++        expect(read_payment_log).to include("retained=100000")
 +      end
++    end
 +
-+      it "still records fee when there is no payment" do
-+        order_no_pay = create(:order, :confirmed, client: client, provider: provider, scheduled_at: 12.hours.from_now, amount_cents: 400_000)
-+        result = described_class.new(order: order_no_pay, client: client, reason: "Emergency").call
-+        expect(result[:success]).to be true
-+        expect(order_no_pay.reload.cancellation_fee_cents).to eq(200_000)
-       end
-     end
- 
++    context "when payment is pending" do
++      it "returns failure" do
++        result = PaymentGateway.partial_refund(payment, 100_000)
++        expect(result[:success]).to be false
++        expect(result[:error]).to eq("Payment not chargeable")
++      end
++    end
++  end
+ end
 ```

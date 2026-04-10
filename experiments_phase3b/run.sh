@@ -58,10 +58,19 @@ for exp in $EXPERIMENTS; do
   done
 done
 
-# Hide CLAUDE.md
+# Hide CLAUDE.md and project memory to prevent domain leaks
+MEMORY_DIR="$HOME/.claude/projects/-home-cutalion-code-affordance-test/memory"
+restore_hidden() {
+  mv "$ROOT/.CLAUDE.md.hidden" "$ROOT/CLAUDE.md" 2>/dev/null || true
+  mv "$MEMORY_DIR.hidden" "$MEMORY_DIR" 2>/dev/null || true
+}
+trap restore_hidden EXIT
+
 if [ -f "$ROOT/CLAUDE.md" ]; then
   mv "$ROOT/CLAUDE.md" "$ROOT/.CLAUDE.md.hidden"
-  trap 'mv "$ROOT/.CLAUDE.md.hidden" "$ROOT/CLAUDE.md" 2>/dev/null || true' EXIT
+fi
+if [ -d "$MEMORY_DIR" ]; then
+  mv "$MEMORY_DIR" "$MEMORY_DIR.hidden"
 fi
 
 echo "=== Debt Threshold Experiment Runner ==="
@@ -108,6 +117,9 @@ for exp in $EXPERIMENTS; do
         git checkout -b "$BRANCH" 2>/dev/null
 
         cd "$APP_DIR"
+        rm -f storage/*.sqlite3 db/*.sqlite3
+        bin/rails db:create db:migrate 2>/dev/null
+
         RESULT=$(echo "$PROMPT" | claude -p --dangerously-skip-permissions --disable-slash-commands --model "$MODEL" 2>&1) || true
 
         if is_error_output "$RESULT"; then

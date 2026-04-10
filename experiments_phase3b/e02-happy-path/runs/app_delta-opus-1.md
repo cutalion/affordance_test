@@ -3,34 +3,37 @@
 
 ---
 
-The main entity is the **Order**. Here's the happy path, step by step:
+The main entity in this system is the **Order**. Here's the happy path, step by step:
 
-## Happy Path for an Order
+---
 
-There are two ways an Order can originate, then they converge:
+### 1. Client creates a Request (pending)
+A **Client** sends a service request to a specific **Provider**, specifying a scheduled time, duration, location, and notes. The Request is created in `pending` state. The Provider receives a notification.
 
-### Path A: Direct Request
+### 2. Provider accepts the Request (pending → accepted)
+The Provider reviews the Request and accepts it. This automatically:
+- Transitions the Request to `accepted` state
+- Creates an **Order** (in `pending` state) with the same details plus a price (amount_cents: 350,000 RUB)
+- Creates a **Payment** record (`pending` status) linked to the Order, including a 10% platform fee
+- Notifies the Client that their request was accepted
 
-1. **Client creates a Request** — specifies a provider, scheduled time, and duration. Starts in `pending` state.
-2. **Provider accepts the Request** — transitions to `accepted`, records `accepted_at`.
-3. **Order is created** from the accepted Request — linked via `request_id`, with amount/currency set. Starts in `pending` state.
+### 3. Provider confirms the Order (pending → confirmed)
+The Provider confirms the Order, moving it to `confirmed` state. The Client is notified.
 
-### Path B: Announcement (marketplace-style)
+### 4. Provider starts the Order (confirmed → in_progress)
+When the scheduled time arrives, the Provider marks the Order as started. The `started_at` timestamp is recorded. The Client is notified.
 
-1. **Client creates an Announcement** — starts as `draft`.
-2. **Client publishes the Announcement** — transitions to `published`.
-3. **Providers submit Responses** — each in `pending` state (one per provider per announcement).
-4. **Client selects a Response** — transitions to `selected`; others get `rejected`.
-5. **Announcement is closed**.
-6. **Order is created** from the selected response. Starts in `pending`.
+### 5. Provider completes the Order (in_progress → completed)
+After the service is delivered, the Provider marks the Order as completed. The `completed_at` timestamp is recorded. If the Payment was in `held` status, it gets charged via the PaymentGateway. Both Client and Provider are notified.
 
-### Converged Order Lifecycle
+### 6. Review
+After completion, either the Client or Provider (or both) can leave a **Review** with a rating (1-5). The order must be in `completed` state for reviews to be allowed. Each party can only review once per order.
 
-7. **Order is confirmed** — `pending` → `confirmed` (e.g., provider confirms availability).
-8. **Payment is created** with status `pending`, then **held** — `held_at` recorded. This is a pre-authorization against the client's card.
-9. **Order starts** — `confirmed` → `in_progress`, records `started_at`.
-10. **Order completes** — `in_progress` → `completed`, records `completed_at`.
-11. **Payment is charged** — status moves to `charged`, records `charged_at`.
-12. **Reviews are left** — both client and provider can leave a review (rating 1-5) on the completed order. Each party can review only once.
+---
 
-That's the full happy path: need expressed → provider matched → order confirmed → payment held → service delivered → payment charged → mutual reviews.
+**Payment lifecycle in parallel:** `pending` → `held` (funds pre-authorized) → `charged` (on order completion). It can also be `refunded` if needed.
+
+**State summary:**
+- Request: `pending` → `accepted`
+- Order: `pending` → `confirmed` → `in_progress` → `completed`
+- Payment: `pending` → `held` → `charged`

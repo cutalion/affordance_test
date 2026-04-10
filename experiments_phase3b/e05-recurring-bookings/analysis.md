@@ -2,130 +2,125 @@
 
 > Blind comparison — app identities not revealed to analyzer.
 
-## Analysis: Recurring Weekly Bookings Across Apps B, C, D, E
+## Analysis: Recurring Weekly Bookings (Apps B, C, D, E)
+
+---
 
 ### 1. Language/Framing
 
-**App B (bravo):** Consistently uses "recurring booking" as a container for "requests." Language is clean and straightforward across all 3 runs. Describes the feature as creating a `RecurringBooking` + 5 `Request` records.
+**App B** (3 runs): Consistently uses "recurring booking" + "requests" language. Clean, uniform framing: "Each of the 5 requests is independent — the provider can accept/decline each individually."
 
-**App C (charlie):** Split framing. Run 1 uses "recurring booking" container language. Runs 2-3 shift to "recurring group" language — "shared `recurring_group_id`", "recurring siblings." The debt app's language leans toward grouping existing entities rather than introducing new ones.
+**App C** (3 runs): Mixed framing. Run 1 uses "recurring group" terminology with UUID semantics. Runs 2-3 shift to "recurring booking" grouping "sessions." Notably describes the feature in terms of "booking requests" — a hedged compound noun.
 
-**App D (delta):** Uses "recurring booking" with "orders" — correctly identifying that the child entity should be Order, not Request. Run 1 even describes "5 weekly sessions" and notes "each with a payment." Language reflects understanding of the full entity chain.
+**App D** (3 runs): Consistently frames as "recurring booking" + "**orders**" — not requests. Run 1: "creates the recurring booking and 5 orders scheduled one week apart." Run 2: "creates 1 recurring booking + 5 orders + 5 payments." D is the only app that reframes the unit of work.
 
-**App E (echo):** Most inconsistent framing. Run 1 describes "recurring booking created" but implements it as grouped requests. Run 2 uses "recurring group" language. Run 3 introduces "day_of_week" and "time_of_day" abstractions — the richest conceptual vocabulary but also the most over-engineered.
+**App E** (3 runs): Run 1 uses "recurring group" with UUID language (like C-Run1). Runs 2-3 shift to "recurring booking" + "requests." Similar inconsistency to C.
 
-**Confidence: High.** The framing differences are consistent and clearly tied to codebase structure.
+**Pattern**: Clean apps (B, D) use consistent language across runs. Debt apps (C, E) show framing instability — the AI seems less sure what to call things when the domain model is muddier.
 
 ---
 
 ### 2. Architectural Choices
 
-| Dimension | App B | App C | App D | App E |
-|-----------|-------|-------|-------|-------|
-| New model created | 3/3 | 1/3 | 2/2* | 1/3 |
-| Group-by-field approach | 0/3 | 2/3 | 0/2 | 2/3 |
-| Separate controller | 2/3 | 1/3 | 2/2 | 0/3 |
-| Nested under existing controller | 1/3 | 2/3 | 0/2 | 3/3 |
+| App | Run 1 | Run 2 | Run 3 | Consistency |
+|-----|-------|-------|-------|-------------|
+| **B** | RecurringBooking model + requests | RecurringBooking model + requests | RecurringBooking model + requests | **High** |
+| **C** | UUID `recurring_group_id` column only | RecurringBooking model (thin) | RecurringBooking model + `total_sessions` + `fully_booked?` | **Low** |
+| **D** | RecurringBooking model + orders + cancel! + state | RecurringBooking model + orders + payments | RecurringBooking model + orders + payments | **High** |
+| **E** | UUID `recurring_group_id` column only | RecurringBooking model + requests | RecurringBooking model + requests | **Low** |
 
-*D Run 3 produced only a design doc, excluded from counts.
+**Key finding**: Both debt apps (C, E) have a Run 1 that avoids creating a new model entirely, choosing instead a lightweight UUID column. Both clean apps (B, D) create a dedicated model in all runs. The debt apps' Run 1 approach (no new model) is arguably the more pragmatic/hacky solution — fitting the pattern of adding to an already-overloaded entity rather than introducing clean separation.
 
-**Key pattern:** Clean apps (B, D) consistently create a proper `RecurringBooking` model. Debt apps (C, E) prefer adding `recurring_group_id`/`recurring_index` fields to the existing Request model — 4 out of 6 debt-app runs avoid creating a new model entirely.
-
-**App D** is the only app that creates Orders directly (bypassing the Request→accept→Order flow), which is architecturally bold but defensible for pre-arranged recurring sessions. It also creates Payments for each order, matching existing patterns perfectly.
-
-**Confidence: High.** The clean-vs-debt split on model creation is the strongest signal in the data.
+**Confidence**: High. The 2-for-2 split between clean→model and debt→UUID-first is striking.
 
 ---
 
 ### 3. Model Placement
 
-**App B:** Creates `Request` records as children — correct. In bravo, Request is the initial booking entity, and acceptance creates an Order. The AI correctly places recurring children at the Request level.
+| App | Creates what? | Correct? |
+|-----|--------------|----------|
+| **B** (Request + Order) | 5 Requests | Yes — Requests are the entry point; Orders come after acceptance |
+| **C** (Request = god object) | 5 Requests | Yes — Request IS the booking here |
+| **D** (Request + Order) | 5 Orders (+ Payments) | Debatable — skips the request/approval step |
+| **E** (Request = god object) | 5 Requests | Yes — Request IS the booking |
 
-**App C:** Also creates `Request` records — correct but for a different reason. In charlie, Request *is* the booking lifecycle, so there's no other option. Runs 2-3 avoid a parent model entirely, adding grouping fields to Request. Run 1 includes `amount_cents`/`currency` on the RecurringBooking, correctly mirroring charlie's richer Request schema.
+**App D** is the interesting case. It has a clear Request → accept → Order flow, but the AI bypasses Request entirely and creates Orders directly. This implies the AI interpreted "recurring bookings" as pre-agreed work (no negotiation needed). Run 1 even reuses `Orders::CreateService`. This is a reasonable domain interpretation but means 5 orders appear with no originating request, which is a novel pattern in that codebase.
 
-**App D:** Creates `Order` records directly — **the most notable placement decision**. In delta, the normal flow is Request → acceptance → Order. The AI skips the invitation/approval step, reasoning that recurring bookings are pre-arranged. All runs also create `Payment` records per order, demonstrating awareness of the full model chain. This is the correct domain call.
+**App B** has the same Request→Order architecture but creates Requests, preserving the approval workflow. The difference: B's AI assumes each session still needs provider approval; D's AI assumes recurring = pre-committed.
 
-**App E:** Creates `Request` records — correct for the god-object app where Request handles everything. Run 1 overloads the existing `create` action with a `recurring: true` parameter rather than creating a new endpoint — the most direct expression of "god object gravity."
-
-**Confidence: High.** Each app's AI correctly targets the right model for that codebase's architecture.
+**Confidence**: Medium-high. D's choice is defensible but diverges from the existing flow.
 
 ---
 
 ### 4. State Reuse vs Invention
 
-All apps across all runs reuse existing initial states (`pending` for requests/orders). No new states are invented anywhere. This is the expected correct behavior — recurring bookings don't need new lifecycle states; each child follows the normal flow independently.
+**Apps B, C, E**: Pure state reuse. All created entities start in their default states (`pending`). No new states invented on existing models.
 
-**Confidence: High.** Unanimous result, no variation.
+**App D Run 1**: Invents `state` field on RecurringBooking with `active`/`canceled` states, a `cancel!` method, and a `canceled_at` timestamp. This is genuine state invention on a new model — not on existing models, but still new lifecycle complexity.
+
+**App D Runs 2-3**: No state field. Orders use existing `pending` state.
+
+**Pattern**: State invention only appears in the most complex clean app (D), and only in one run. All debt apps avoid state invention entirely — possibly because the existing state machines are already complex enough to discourage adding more.
 
 ---
 
 ### 5. Correctness
 
-**App B:** Generally clean. Minor concern: `Time.parse(@params[:start_at].to_s)` could fail on bad input, but the transaction + rescue handles it. Run 1's schema diff shows column renames (`scheduled_at` → `start_at`, `sessions_count` → `total_sessions`), suggesting a migration collision with pre-existing schema — a minor issue.
+**App B**: Minor issue — all runs use `Time.parse(@params[:scheduled_at].to_s)` which could fail on unexpected input types. Functionally correct otherwise.
 
-**App C:** Run 3's migration uses `column_exists?` guards, revealing awareness that `recurring_group_id` and `recurring_index` columns already exist in charlie's schema. This is correct defensive coding. Run 3 also rescues `ArgumentError` for time parsing — extra safety.
+**App C Run 1**: Most defensive — explicitly catches `ArgumentError`/`TypeError` for time parsing. Good error handling.
 
-**App D:** Run 1 makes `session_count` configurable (not fixed at 5), which deviates from the prompt spec. The `add_reference :orders, :recurring_booking` without explicit `null: true` could cause issues on strict databases, though SQLite is lenient. Run 3 produces no implementation at all — asks permission to proceed.
+**App D Run 1**: **Bug** — uses `Orders::CreateService` inside a transaction and catches failure with `raise ActiveRecord::Rollback`. But `ActiveRecord::Rollback` silently swallows the rollback without re-raising, so the method continues past the transaction block, sends a notification, and returns `{ success: true }` with a rolled-back (unsaved) `recurring_booking`. This is a real logic error.
 
-**App E:** Run 1's `base_scheduled_at && (...)` is nil-safe but would create requests with `nil` scheduled_at if the param is missing — potential data integrity issue. Run 3 parses `scheduled_at` twice (once for the booking, once for requests) — minor inefficiency.
+**App D Runs 2-3**: Correct. Direct `create!` calls inside transaction with proper `RecordInvalid` rescue.
 
-**No major bugs across any app.** All implementations wrap creation in transactions and handle `RecordInvalid` correctly.
+**App E Run 1**: Returns errors as `String[]` rather than `ActiveModel::Errors` — inconsistent with the rest of the API. The controller calls `render_unprocessable(result[:errors])` which expects `.full_messages` elsewhere but here receives raw strings.
 
-**Confidence: Medium-high.** The implementations are all functional; the issues noted are edge cases.
+**Confidence**: High on the D-Run1 bug. It's a well-known Rails antipattern.
 
 ---
 
 ### 6. Scope
 
-**App B:** Tightest, most consistent scope. Creates exactly what's needed: model, service, controller, routes, specs. No admin views, no extra helper methods.
+| App | Scope creep items |
+|-----|------------------|
+| **B** | None — stays on task across all 3 runs |
+| **C** | Design spec docs (Runs 1-3), implementation plan doc (Run 1), `fully_booked?` method (Run 3), `recurring` factory trait (Run 1) |
+| **D** | Cancel endpoint + state management (Run 1), Payment creation (Runs 1-3) |
+| **E** | `recurring?`, `recurring_siblings`, `by_recurring_group` model methods (Run 1), `render_forbidden` access check (Run 2) |
 
-**App C:** Runs 2-3 add `recurring?`, `recurring_siblings`, `.recurring` scope, `.by_recurring_group` scope to the Request model — utility methods not strictly required by the prompt. Run 1 touches Client and Provider models to add `has_many :recurring_bookings`.
+**App D** adds the most unrequested functionality. Payment creation is arguably in-scope (orders need payments to be valid in that system), but the cancel endpoint in Run 1 was not requested.
 
-**App D:** Run 1 adds an admin controller (`Admin::RecurringBookingsController`) with index/show — unrequested. Run 1 also adds admin-section routes. Run 3 only produces a design doc and asks for permission — the only non-implementation across all 12 runs.
+**App C** generates the most documentation artifacts — full plan documents and design specs, sometimes hundreds of lines.
 
-**App E:** Run 2 adds admin view changes (recurring indicator badge, "Recurring Sessions" table on show page) — unrequested. Run 3 adds `has_many :recurring_bookings` to Client and Provider. Run 1's approach of overloading the existing `create` action is scope contamination of existing code.
-
-| App | Avg scope creep | Direction |
-|-----|----------------|-----------|
-| B | Low | Consistently focused |
-| C | Medium | Adds helper methods to Request |
-| D | Medium-High | Adds admin views, or under-delivers |
-| E | Medium-High | Modifies admin views, overloads existing endpoints |
-
-**Confidence: Medium.** Scope assessment is somewhat subjective.
+**App B** is the most disciplined about scope.
 
 ---
 
 ### Pairwise Comparisons
 
-**B vs C (Stage 1 Clean vs Stage 1 Debt):**
-The clearest contrast. B creates a `RecurringBooking` model in all 3 runs; C avoids it in 2/3 runs, preferring `recurring_group_id` on Request. Charlie's debt (Request absorbs lifecycle) exerts gravitational pull — the AI adds more to the god object rather than extracting a new concept. C also adds more helper methods to Request (scopes, predicates, sibling queries), further entrenching the model's centrality.
+**B vs C** (Stage 1 Clean vs Debt): B is architecturally consistent (3/3 same approach). C is inconsistent (3 different architectures). Both correctly target Request. C generates more documentation artifacts. B stays leaner.
 
-**B vs D (Stage 1 Clean vs Stage 2 Clean):**
-Both create proper `RecurringBooking` models. D goes deeper — creates Orders + Payments, reflecting its richer model hierarchy. D's architectural understanding is more sophisticated but also more variable (one run only produced a design). Clean architecture consistently leads to clean extensions in both.
+**B vs D** (Stage 1 vs Stage 2, both Clean): D targets Orders instead of Requests — different model choice. D is more ambitious (payments, cancel). D has a correctness bug in Run 1. B is simpler and more correct.
 
-**C vs E (Stage 1 Debt vs Stage 2 Debt):**
-Strikingly similar patterns. Both avoid new models in 2/3 runs. Both add grouping fields to Request. Both add utility methods. E shows slightly more variation (Run 3's RecurringBooking has `day_of_week`/`time_of_day` — over-engineering). Debt-level differences (Stage 1 vs Stage 2) don't clearly differentiate outcomes.
+**C vs E** (Stage 1 vs Stage 2, both Debt): Nearly identical pattern — both have a Run 1 that uses UUID grouping (no new model), then Runs 2-3 that create a RecurringBooking model. The debt seems to cause the same architectural uncertainty regardless of complexity level.
 
-**D vs E (Stage 2 Clean vs Stage 2 Debt):**
-Strongest contrast at the same complexity stage. D consistently creates proper model hierarchies and targets Order. E fragments across approaches and always targets Request. D creates Payments; E never does (even though echo's Request has payment associations). The clean/debt distinction matters more than the complexity stage.
+**D vs E** (Stage 2 Clean vs Debt): D creates Orders; E creates Requests. D is more architecturally consistent (3/3 create RecurringBooking model). E has the UUID divergence in Run 1. D is more feature-rich. Both correctly identify their primary bookable entity.
 
-**Confidence: High** for B-vs-C and D-vs-E comparisons. **Medium** for cross-stage comparisons.
+**Clean (B+D) vs Debt (C+E)**: Clean apps produce consistent architectures across runs (6/6 create a dedicated model). Debt apps produce inconsistent architectures (4/6 create a model, 2/6 use UUID column). Clean apps show more confidence; debt apps show more hedging.
 
 ---
 
 ### Notable Outliers
 
-1. **App D Run 3** — The only run across all 12 that produced no implementation, instead presenting a design document and asking permission. This may indicate that delta's more complex architecture (4 models) triggers more planning behavior.
+1. **C-Run1 and E-Run1** both independently arrive at the UUID-grouping approach (no new model). This is the "add a column to the existing table" instinct — arguably the natural response when the existing model is already doing too much.
 
-2. **App E Run 1** — The only run that overloads an existing controller action (`create` with `recurring: true` param) rather than creating a new endpoint. This is the clearest example of god-object gravity affecting API design.
+2. **D-Run1** is the only run across all apps that adds state management and a cancel endpoint — significantly over-scoping. The clean multi-model architecture seems to invite the AI to build richer features.
 
-3. **App E Run 3** — Creates the most complex `RecurringBooking` model with `day_of_week` (validated 0..6), `time_of_day` (validated HH:MM format). This over-specification is unique across all runs and suggests the echo codebase's complexity triggers over-engineering in response.
-
-4. **App D's Order-level targeting** — The only app where the AI creates the child entities at the Order level rather than Request level, and the only one that also creates Payment records. This demonstrates that clean model separation successfully communicates the correct domain hierarchy to the AI.
+3. **D-Run1's bug** with `ActiveRecord::Rollback` is the most serious correctness issue across all 36 runs (12 runs × 3 repetitions shown here). It's caused by trying to compose with an existing service (`Orders::CreateService`) inside a transaction — a complexity that only arises because D has a clean service architecture to reuse.
 
 ---
 
 ### Bottom Line
 
-**The dominant finding is god-object gravity: debt apps (C and E) cause the AI to avoid creating new models in 4 out of 6 runs, instead piling `recurring_group_id` fields onto the existing Request model, while clean apps (B and D) consistently create proper `RecurringBooking` models in all runs.** This is not about the AI making errors — both approaches work — but about debt silently shaping architectural decisions toward further entrenchment of existing patterns. The effect is consistent across complexity stages (Stage 1 and Stage 2 show the same clean/debt split), and it extends beyond model choice to controller placement, endpoint design, and even the amount of helper code added to existing models. Most strikingly, App D is the only codebase where the AI correctly identifies that recurring children should be Orders (not Requests) and creates accompanying Payments — demonstrating that clean architecture doesn't just prevent bad decisions, it actively communicates the right ones.
+**Clean codebases produce architecturally consistent AI responses; debt codebases produce inconsistent ones.** Across all runs, clean apps (B, D) generated the same structural approach 6 out of 6 times (dedicated RecurringBooking model), while debt apps (C, E) diverged in 2 out of 6 runs toward a lightweight UUID-column hack — the kind of shortcut that compounds technical debt. However, correctness was not meaningfully worse in debt apps; the single serious bug (D-Run1's silent rollback) actually appeared in a clean app, caused by the AI trying to reuse an existing service in a way that introduced a subtle transaction-safety error. The debt apps' simpler, more direct code was paradoxically less buggy — suggesting that clean architecture invites ambitious composition that can misfire, while messy code keeps the AI conservative and correct.

@@ -1,6 +1,6 @@
 # Skeptical Review: Phase 3b Debt Threshold Experiment
 
-> Independent adversarial review of 6 experiments (72 runs total) across 5 Rails apps.
+> Independent adversarial review. No prior judge reviews consulted.
 
 ---
 
@@ -8,165 +8,160 @@
 
 ### Sample Size
 
-n=3 per app per experiment is dangerously small. With 3 runs, a single outlier shifts the distribution from "unanimous" to "split." Several findings hinge on exactly this kind of thin margin:
+Three runs per app per experiment is inadequate for the statistical claims being made. The analyses routinely say things like "2 out of 3 debt-app runs did X" and treat this as a pattern. With n=3, a single run going differently would flip the ratio from "67% do X" to "33% do X." The experiment has 72 total runs, which sounds impressive, but they are fragmented across 6 experiments, 5 apps, and 3 repetitions, leaving the effective comparison groups at n=3 or n=6 (when pooling across stages). No statistical tests are applied anywhere. No confidence intervals. No p-values. The word "pattern" appears dozens of times in the analyses, but nothing here rises above anecdotal observation.
 
-- E03's "negotiable decline" finding: clean apps are "split" (2 terminal, 2 negotiable out of 6 runs) vs debt apps "unanimous" (8/8 negotiable). This is 6 vs 8 data points. A single run changing its mind would alter the narrative.
-- E05's "model creation" finding: clean apps create a model "in all runs" vs debt apps "avoid it in 4/6." The clean count is based on 5 runs (B's 3 + D's 2, since D-R3 produced no code). Each app only has 2-3 data points.
+### Confounding Variables
 
-At n=3, you cannot distinguish a real signal from random variation in prompt interpretation. The minimum credible sample would be n=10-15 per condition.
+The experiment conflates at least three independent variables:
 
-### Confounding Variables: The Apps Are NOT Equivalent
+1. **Structural complexity** (number of models/entities) -- Alpha has 4 tables, Bravo has 7, Delta has 9.
+2. **Technical debt** (god-object patterns, semantic overloading) -- Charlie and Echo collapse separate concerns into Request.
+3. **Code volume** -- Echo's AcceptService is 82 lines with branching logic; Delta's is simpler. More code = more for the AI to read and potentially misunderstand, independent of "debt."
 
-The apps differ in ways that go far beyond "clean vs debt":
+The analyses repeatedly attribute observed differences to "technical debt" when they could equally be caused by sheer codebase size, number of models, or the complexity of any individual service. The claim that debt causes worse AI output cannot be separated from the claim that larger/more complex codebases cause worse AI output. These are distinct hypotheses that would require different experimental designs to disentangle.
 
-| App | Ruby files in app/ | Lines of code | Models | Has Order model? | Has RecurringBooking table? |
-|-----|-------------------|---------------|--------|------------------|-----------------------------|
-| A (alpha) | 23 | 645 | 4 | No | No |
-| B (bravo) | 38 | 1,321 | 7 + RecurringBooking schema | Yes | **Yes** |
-| C (charlie) | 33 | 1,088 | 6 | No | No (has recurring_group_id columns) |
-| D (delta) | 49 | 1,757 | 9 + RecurringBooking schema | Yes | **Yes** |
-| E (echo) | 39 | 1,360 | 7 | No | No (has recurring_group_id columns) |
+### Blinding Issues
 
-The clean apps have 20-30% more code, more models, and more service objects. Any comparison between clean and debt apps confounds architectural style with codebase volume and available patterns.
+The analysis script (analyze.sh) replaces app names with letters A-E, which is a reasonable effort. However:
 
-### The Biggest Methodological Problem: Pre-Baked Schemas
+- The analyzer sees all code diffs and can trivially identify which app has more models, which has Announcements, and which uses "Request" as a god object. The "blinding" is cosmetic -- the structural signature of each app is fully visible.
+- The analyzer prompt says "You do not know which app has more or less debt." This is technically true but misleading. The analyzer can infer it immediately from the code. A truly blind design would require the analyzer to NOT see the raw diffs and instead evaluate outputs on dimensions without knowing the codebase structure.
+- Both the runner and the analyzer use Opus. The same model family generates the experimental data AND evaluates it. This is the fox guarding the henhouse. The analyzer may share systematic biases with the generator (e.g., both might frame god objects as "natural" in the same way).
 
-**This is the critical flaw the analyses miss.** The app schemas contain pre-existing structures that determine the "architectural decisions" the analyses attribute to the AI:
+### Temporal and Environmental Controls
 
-1. **E05 (Recurring Bookings)**: App B and D already have a `recurring_bookings` table in their schema with foreign keys to requests/orders. App C and E already have `recurring_group_id` and `recurring_index` columns on their requests table. The AI is not "deciding to create a RecurringBooking model" in clean apps or "deciding to use a group-by-field approach" in debt apps -- it is reading the existing schema and following what is already there. The E05 analysis's headline finding ("god-object gravity: debt apps cause the AI to avoid creating new models in 4 out of 6 runs") is an artifact of pre-existing schema, not an emergent AI behavior.
+The run.sh script hides CLAUDE.md and project memory during runs, which is good. But there is no mention of:
 
-2. **E06 (Withdraw Response)**: App E's schema already has `withdraw_reason` and `withdrawn_at` columns on the requests table. The "extra ceremony" (reason field, timestamp) that the analysis attributes to the debt app's conventions is partially pre-determined by existing columns.
-
-3. **E03 (Counter-Proposal)**: The existing `AcceptService` in clean apps (bravo/delta) already contains the `raise ActiveRecord::Rollback` followed by unreachable `return error(...)` pattern. The AI copies this existing bug into the new `AcceptCounterProposalService`. The analysis correctly identifies this bug appears only in clean apps but frames it as "debt apps avoid it because they create Payments inline." The more parsimonious explanation: the AI copies whatever pattern it sees in the existing AcceptService. In clean apps, that pattern has a bug; in debt apps, it does not.
-
-**These pre-baked schemas mean that for at least E03, E05, and E06, the experiment is not measuring AI decision-making under different architectures -- it is measuring the AI's ability to follow pre-existing patterns.** That is a valid finding, but a different one than what is claimed.
+- Whether runs were sequential or parallel (order effects with API rate limiting could affect quality)
+- Whether temperature was controlled (Claude's default temperature may vary across API calls)
+- Whether the same model checkpoint was used across all 72 runs (model updates during the experiment period would be a major confound)
+- Whether context window utilization varied significantly across apps (Echo has more files for Claude to read than Alpha)
 
 ---
 
 ## 2. Alternative Explanations
 
-### Pattern Mimicry, Not Architectural Reasoning
+### "The AI normalizes debt" might just be "the AI describes what it sees"
 
-Most observed differences can be explained by simple pattern mimicry:
+The flagship finding from e01 is that Claude "naturalizes technical debt as intentional design." But what is the alternative? Should Claude, when asked to "describe what this system does," editorialize about code smells? The prompt asks for a description, not a review. An AI that accurately describes a god object IS doing its job correctly. The framing as "normalization of debt" imputes a failure mode that the prompt never asked the AI to detect. This is measuring the wrong thing and calling it a finding.
 
-- **E03 dead-code bug**: The existing AcceptService in bravo/delta has this exact bug. The AI copies it. No architectural reasoning involved.
-- **E05 model creation**: Existing schema already contains the answer. The AI reads it.
-- **E06 extra fields**: Echo's schema already has `_reason` and `_at` columns for each state transition. The AI follows convention.
-- **E04 scope creep in D**: Delta has 49 Ruby files and 9 models -- more code means more surface area for the AI to explore and more patterns to extend. The "clean architecture invites elaboration" theory competes with "bigger codebase invites more output."
+### Cross-run variance may reflect prompt underspecification, not codebase quality
 
-### Complexity vs Debt
+The analyses repeatedly note that debt apps produce "more variance across runs." But the prompts are deliberately terse (e.g., "Add a cancellation fee..."). Variance in AI output for underspecified prompts is expected and may correlate with how many plausible interpretations the codebase affords. A codebase with more entities naturally has more places to put new features. This is a feature of design space size, not a pathology of debt. App Delta (clean, Stage 2) also shows significant cross-run variance in e03 (terminal vs. non-terminal decline) and e05 (creating Orders vs. Requests) -- variance that the analyses quietly attribute to "additional codebase complexity" rather than "debt," revealing a double standard.
 
-The experiment claims to test "technical debt" but what it actually varies is:
-1. Number of models (more in clean apps)
-2. Presence of an Order model (clean) vs its absence (debt)
-3. Number of service objects
-4. Schema pre-seeding
+### The raise/return bug (e03) is pattern replication, not a debt signal
 
-These are confounded. You cannot attribute differences to "debt" when "clean" apps have 30% more code, more models, and pre-existing schema structures that guide the AI's choices.
+The analyses make much of the fact that clean apps (Bravo, Delta) have a raise/return bug while debt apps (Charlie, Echo) do not. But this is not about debt -- it is about indirection. Clean apps use `Orders::CreateService` inside a transaction, which requires checking its return value. Debt apps create Payment directly. The bug is caused by the AI mimicking a delegation pattern imperfectly, not by any property of debt vs. cleanliness. You could have a clean app that creates payments directly and a debt-laden app that delegates to sub-services. The analysis correctly identifies the proximate cause (delegation pattern) but then frames the bottom line as if debt is the relevant variable.
+
+### UUID-column approach (e05) may reflect pragmatism, not debt-induced confusion
+
+Two debt-app Run-1 outputs chose a UUID column instead of a new model for recurring bookings. The analysis frames this as "the kind of shortcut that compounds technical debt." But it is also a perfectly legitimate lightweight approach for grouping records. Many production systems use correlation IDs without dedicated grouping models. The fact that the AI chose this approach in debt codebases could mean it is being appropriately conservative about adding models to already-complex systems, not that it is confused.
 
 ---
 
 ## 3. Cherry-Picking Check
 
-### E03 Analysis Framing
+### Selective emphasis on confirming results
 
-The E03 analysis's bottom line states: "The debt apps (C, E) produced more correct and consistent implementations than the clean apps (B, D)." This is presented as a counterintuitive finding, but the analysis does not adequately consider that the dead-code bug is inherited from the existing codebase, not generated fresh. The analysis notes that debt apps "create Payments inline" while clean apps "delegate to Orders::CreateService," but does not investigate whether the existing AcceptService already demonstrates this exact bug pattern (it does).
+- **e01**: The "bottom line" focuses on the most dramatic claim (AI normalizes debt). But the data also shows that the AI was highly accurate across all 15 runs, with only one factual error. The boring finding -- "Claude describes codebases accurately regardless of debt level" -- is more strongly supported but less dramatic.
 
-### E04 Analysis Framing
+- **e03**: The bottom line highlights the raise/return bug in clean apps as the "most important finding." But this is a single specific bug pattern that happened to align with the clean/debt split due to an incidental architectural difference (delegation vs. direct creation). The analysis buries the fact that debt apps showed more scope creep (C-Run3 adding duration/notes, E-Run1 producing a 768-line plan document).
 
-The E04 analysis highlights that App E (highest debt) "stays strictly on-task in all runs" while App D (Stage 2 Clean) has "the most scope creep." But with n=3 per app, the D-R2 outlier alone drives this conclusion. Removing that single run makes D comparable to other apps.
+- **e04**: The analysis claims debt apps put the fee on Payment "to avoid the god object." I verified the claim: 5/6 debt-app runs put it on Payment. But this is presented as evasion rather than the equally plausible explanation that Payment is where fee-related data naturally belongs in a system where Request already has 15+ columns. The clean apps put the fee on Order partly because Order is the closest analog to "the thing being canceled" -- in debt apps, that is Request, which already has `amount_cents`, `cancel_reason`, etc. The AI may simply be finding the less crowded table, which happens to be Payment.
 
-### E05 Analysis Framing
+- **e05 and e06**: These experiments have the smallest sample sizes (e06 has only 6 runs: 3 Delta, 3 Echo) and yet produce some of the boldest comparative claims. The e06 analysis states that Delta produces "near-identical diffs" while Echo "diverges" -- but with n=3, "near-identical" vs. "divergent" is a judgment call that could flip with one more run.
 
-As detailed above, the headline finding is an artifact of pre-existing schema, not emergent behavior.
+### Missing negative results
 
-### Selective Emphasis
+None of the analyses mention cases where debt apps performed equally well or better on dimensions that the debt-is-bad hypothesis would predict they should fail. For example:
 
-Across all 6 analyses, findings that support the "debt shapes AI behavior" narrative get prominent placement and confident language, while null results (E01/E02 showing the AI is equally accurate across all apps, E04 showing "no systematic correctness difference") receive less emphasis.
+- In e01, all 15 runs accurately reported states. No advantage for clean apps.
+- In e02, the single factual error (B-Run3 misattributing Order creation) was in a CLEAN app.
+- In e03, debt apps had zero correctness bugs while clean apps had the raise/return bug.
+- In e04, the worst bug (E-Run2 reusing fee_cents) was in a debt app, but the second worst (mutating amount_cents) appeared in BOTH clean and debt apps.
+
+The analyses acknowledge these individual results but never synthesize the fact that the correctness dimension does not consistently favor clean apps. If anything, the data suggests debt apps produce fewer bugs -- a finding that contradicts the overarching narrative but is never headlined.
 
 ---
 
 ## 4. Reproducibility
 
-With n=3, reproducibility is essentially unmeasurable. Key concerns:
+### Would findings hold with more runs?
 
-- **D-R3** in both E03 and E05 produced non-standard output (implementation plan document instead of code, or design-only without implementation). That is 2 out of 6 code-experiment runs for delta producing atypical output -- a 33% anomaly rate that would wash out with more runs but here dominates the statistics.
-- **B-R2** in E03 produced no code. With only 3 runs, losing one run to non-completion means the "B pattern" is based on 2 data points.
-- The analyses report "high confidence" for findings derived from 3-8 data points. This is overconfident.
+Doubtful for the specific patterns, likely for the broad trends.
 
-The finding would only be reproducible if someone ran 15+ repetitions per condition and found the same directional effects.
+The broad finding that "Claude mirrors whatever patterns it finds" would almost certainly replicate. This is well-established behavior for LLMs and is not novel.
+
+The specific numeric patterns (e.g., "7/9 column placements on Order in clean apps") could easily shift with a few more runs. A single run going differently changes ratios dramatically at these sample sizes.
+
+The raise/return bug (e03) is the most reproducible finding because it is structural -- the bug follows directly from the delegation pattern in the AcceptService. But framing it as a debt finding rather than a delegation-pattern finding is the interpretation that would not survive scrutiny.
+
+### Model dependency
+
+The experiment used only Opus. There is no reason to believe Sonnet, GPT-4, or Gemini would show the same patterns. The findings are specific to one model at one point in time. The experiment should be described as "how Opus responds to these 5 codebases" rather than "how AI coding assistants are affected by technical debt."
 
 ---
 
-## 5. Label Contamination (Round 2)
+## 5. Contamination Check
 
-### What Was Done Right
+### Schema verification
 
-- Apps renamed to neutral phonetic alphabet names (alpha through echo)
-- CLAUDE.md hidden during runs (`mv CLAUDE.md .CLAUDE.md.hidden`)
-- Header lines stripped from run files before analysis (`tail -n +5`)
-- Analyzer told "You do not know which app has more or less debt"
+I cross-checked all 5 app schemas against the analysis claims:
 
-### What Still Leaks
+- **app_alpha**: 4 tables (clients, providers, cards, requests). Request has 12 columns, states: pending/accepted/declined/expired. Confirmed simple invitation model.
+- **app_bravo**: 7 tables. Request is simple (same as Alpha). Order has amount_cents, cancel_reason, reject_reason, started_at, completed_at. Payment has fee_cents. Clean separation confirmed.
+- **app_charlie**: 5 tables. Request has absorbed Order's columns: amount_cents, cancel_reason, reject_reason, started_at, completed_at, currency. Payment belongs to Request. God-object pattern confirmed.
+- **app_delta**: 9 tables. Same as Bravo + Announcements + Responses. Clean separation confirmed.
+- **app_echo**: 6 tables. Same as Charlie + Announcements. Request has announcement_id, proposed_amount_cents, response_message. No Response model. God-object pattern confirmed.
 
-1. **Parent project memory**: `~/.claude/projects/-home-cutalion-code-affordance-test/memory/MEMORY.md` contains "derived from Kidsout domain" and describes the experiment's purpose. This is a parent-directory memory file, and the experiment runs operate in subdirectories. Claude Code loads parent project memory. This explains why nearly every E01 run across all apps mentions "Kidsout" and "childcare/babysitting" despite these terms appearing nowhere in the app codebases themselves.
+The schemas are structurally honest -- they do represent different debt levels as claimed. No hidden CLAUDE.md files or embedded instructions that could bias results.
 
-2. **Git diff paths in run files**: The analyzer sees `diff --git a/app_bravo/app/models/request.rb` in the raw data. While "bravo" is neutral, the analyzer can trivially deduce which is "clean" and which is "debt" by examining the code structure (presence/absence of Order model, Response model, etc.). The "blind" label is misleading -- the analyzer can identify each app's architecture from the code itself. This is not really a flaw (the architecture IS the independent variable), but the "blind comparison" framing overstates the methodology.
+### Critical contamination: `fee_cents` pre-exists on Payment
 
-3. **The analyzer labels apps explicitly**: Despite the "blind" claim, the E03 analysis file maps "B = app_bravo, Stage 1 Clean" in its opening table. The analyzer either deduced this from the code or had additional context. Either way, the analysis was not performed blind to condition.
+In both app_charlie and app_echo, Payment already has `fee_cents` with `default: 0`. This is relevant to e04 (cancellation fee): the E-Run2 "reuse of fee_cents" bug is actually the AI correctly identifying an existing column and (wrongly) assuming it can serve double duty. This is not a debt-induced error -- it is the AI being too clever about avoiding schema changes, which could happen in any codebase with a pre-existing column of similar name. The same `fee_cents` column exists in app_bravo and app_delta's Payment tables too, but there the AI chooses to add `cancellation_fee_cents` to Order instead. The difference is not about debt awareness but about where the AI's attention lands first.
+
+### Run isolation
+
+The run.sh script creates fresh branches, drops and recreates SQLite databases, and resets to main between runs. This is reasonable isolation. However, runs within the same experiment for the same app share the same model weights and are likely consecutive API calls, so there could be session-level caching effects or API-side A/B testing that group results together.
 
 ---
 
 ## 6. Overstated Claims
 
-### "God-object gravity" (E05)
+### Specific overstatements:
 
-This is the experiment's most prominent claim and its weakest. The clean apps already have a `recurring_bookings` table; the debt apps already have `recurring_group_id`/`recurring_index` columns. The AI followed pre-existing schema. Attributing this to "gravity" exerted by a god object is storytelling, not evidence.
+1. **"The AI systematically normalizes technical debt"** (e01 bottom line) -- The AI was asked to describe, not critique. This is like saying a census taker "normalizes" household composition by accurately recording it.
 
-### "Debt's complexity can sometimes function as a form of specification" (E03)
+2. **"Clean architecture begets clean descriptions"** (e01 notable outlier #3) -- Based on 3 runs of app_delta. Not sufficient to generalize.
 
-This is an interesting hypothesis but dramatically overstated for n=3. The mechanism described (debt apps' richer state machines pushing the AI toward distinct events) is plausible but competes with simpler explanations (the AI copies whatever pattern exists in the current AcceptService).
+3. **"More debt = more description variance"** (e01) -- Based on one error in one run of the highest-debt app. One data point is not a trend.
 
-### "Clean architecture invites scope creep" (E04)
+4. **"The quality of AI-generated code is heavily influenced by the patterns it imitates"** (e03 bottom line) -- This is the only finding that is both well-supported and not already obvious. But it is presented as a debt finding when it is really a pattern-replication finding.
 
-Based on a single outlier (D-R2) producing an ambitious implementation. One data point is not a pattern.
+5. **"Debt apps show more architectural variation across runs"** (e04, e05) -- This conflates variation with badness. More design options does not mean worse outcomes.
 
-### "The happy path is the one angle from which debt looks exactly like clean design" (E02)
+6. **"God object's accumulated patterns create ambiguity about which conventions to follow, producing measurably less deterministic AI output"** (e06 bottom line) -- "Measurably" is doing heavy lifting for n=3. The variation is between "adds withdraw_reason or not" -- a minor design choice, not evidence of confusion.
 
-This is actually well-supported by the data. The happy-path descriptions for C/E and B/D are genuinely comparable in quality and structure. But the claim that this makes debt "invisible" is somewhat obvious -- a happy path by definition avoids the edge cases where debt causes problems.
-
-### "Blind comparison" framing
-
-All 6 analyses open with "Blind comparison -- app identities not revealed to analyzer." The analyzer clearly identified which apps were clean vs debt (the E03 analysis explicitly labels them). This framing is misleading.
+7. **"Clean architecture invites ambitious composition that can misfire, while messy code keeps the AI conservative and correct"** (e05 bottom line) -- This directly undermines the overarching "debt is bad" thesis but is presented as a secondary observation rather than a headline finding. If debt makes AI output more conservative and correct, the experiment's own data argues AGAINST the clean-is-better narrative on the dimension that matters most (correctness).
 
 ---
 
-## 7. What Is Actually Solid
+## 7. What IS Actually Solid
 
-Despite the above, several findings hold up under scrutiny:
+Despite the above, several findings survive skeptical scrutiny:
 
-### E01/E02: AI as faithful mirror (STRONG)
+1. **Pattern replication is real and verified.** I confirmed in raw diffs that the AI faithfully copies existing service patterns (delegation in clean apps, direct creation in debt apps). The e03 raise/return bug is a concrete, reproducible example. The e06 Delta/Echo comparison shows the AI mirroring `_reason`/`_at` column conventions. This is the experiment's strongest finding.
 
-The AI accurately describes each codebase's structure without inventing entities, states, or relationships. It normalizes whatever it finds, including god-object patterns, without flagging architectural problems. This is consistent across 15 runs per experiment and is the most robust finding in the dataset.
+2. **The AI does not editorialize about architecture.** Across all 72 runs (15 descriptive + 57 code), not a single run questions naming choices, suggests refactoring, or flags the semantic mismatch of "Request" doing payment capture. This is consistent and meaningful, even if the prompt design partly explains it.
 
-### E06: Clean architecture produces convergent implementations (MODERATE)
+3. **e06 (withdraw response) is the cleanest paired comparison.** Same prompt, same feature, two apps, one has a Response model and one does not. The structural differences in output (0 migrations vs. 1-2 migrations, 1 guard clause vs. 2-3, clean naming vs. confused naming) are directly attributable to the architectural difference. This is the experiment's best-designed comparison.
 
-Delta's 3 runs are byte-identical; echo's diverge (2/3 on RequestsController, 1/3 on AnnouncementsController). This is a small sample but the delta convergence is striking. The mechanism is clear: when a domain concept has its own model, there is one obvious place to put the feature. When it does not, ambiguity produces divergence.
+4. **The e04 model placement split is real.** Clean apps put the fee on Order (7/9), debt apps put it on Payment (5/6). This is a genuine behavioral difference that is hard to explain as noise at these counts. Whether it represents "evasion of the god object" or "sensible placement given the schema" is debatable, but the placement difference itself is solid.
 
-### E03: AI copies existing patterns faithfully, including bugs (MODERATE)
-
-The dead-code bug appears in 5/6 clean-app runs because it already exists in the clean apps' AcceptService. The AI copies patterns wholesale. This is not a finding about "debt vs clean" but about AI pattern mimicry -- arguably more useful than the debt narrative.
-
-### E06: Language mismatch in debt apps (MODERATE)
-
-Echo's runs talk about "withdrawing a request" when the prompt said "withdraw their response." This semantic mismatch is real and consistent across runs. It demonstrates that entity naming affects the AI's communication, even when the AI implements the feature correctly.
-
-### General: AI follows conventions (STRONG)
-
-Across all experiments, the AI replicates whatever conventions exist in the codebase -- naming patterns, field naming conventions (`_reason`, `_at` suffixes), service object structure, controller patterns. This is well-supported across the full dataset.
+5. **The CLAUDE.md hiding and branch isolation methodology is sound.** The runner script properly prevents cross-contamination between runs and hides project-level instructions.
 
 ---
 
 ## 8. Verdict
 
-These experiments demonstrate something real but different from what is claimed. The strongest finding is that AI coding assistants are aggressive pattern mimics: they copy existing code structures wholesale, including bugs (E03), pre-existing schema decisions (E05), and naming conventions (E06). This mimicry means that architectural decisions embedded in a codebase become self-reinforcing when AI is used for development -- not because the AI "reasons about architecture" but because it treats existing code as a template. The "debt threshold" narrative layered on top of this -- with its claims about god-object gravity, debt-as-specification, and clean-architecture-inviting-scope-creep -- is substantially overstated given n=3 samples, pre-baked schemas, and confounded variables (code volume, model count, pre-existing patterns). The experiment should be understood as a suggestive pilot study that identified a promising hypothesis (AI pattern mimicry amplifies existing architectural decisions), not as evidence for the specific mechanisms claimed in the analyses. To reach credible conclusions about debt thresholds, the experiment would need: (a) 15+ runs per condition, (b) apps with identical schemas that differ only in code organization, (c) no pre-existing schema hints for the features being tested, and (d) genuinely blind analysis where the analyzer cannot identify conditions from the code structure.
+This experiment is a well-executed exploratory study that generates interesting hypotheses but overstates its conclusions at every turn. The strongest finding -- that AI coding assistants replicate existing patterns including their flaws -- is genuine but not novel. The debt-specific claims rest on sample sizes too small for the confidence expressed, routinely conflate debt with structural complexity, and selectively emphasize results that support the narrative while burying contradictory evidence (debt apps producing fewer bugs, clean apps showing cross-run variance). The analysis framework uses Opus to judge Opus, applies no statistical rigor, and treats n=3 observations as "patterns" and "systematic" behaviors. The experiment would benefit from: (a) at least 10 runs per condition, (b) a human evaluator blind to codebase identity, (c) separating complexity from debt as independent variables, and (d) honestly reckoning with the finding that debt apps sometimes produced MORE correct code than clean apps. As it stands, this is a suggestive pilot study being presented with the confidence of a controlled experiment.

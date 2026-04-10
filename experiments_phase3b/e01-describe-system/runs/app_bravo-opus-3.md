@@ -3,29 +3,28 @@
 
 ---
 
-This is a **service booking marketplace** — a two-sided platform connecting **Clients** (who need services) with **Providers** (who deliver them). The domain is derived from a childcare/babysitting marketplace (Kidsout).
+This is a **service marketplace / booking platform** built with Rails (API-mode + admin panel). Here's the breakdown:
+
+## Domain
+
+A two-sided marketplace where **clients** book time-based services from **providers** (specialists). The currency is RUB, and providers have specializations and ratings — think something like a home services or professional consultations platform.
 
 ## Main Entities
 
-- **Client** — a person who books services. Has payment cards, notification preferences, and an API token for authentication.
-- **Provider** — a service professional with a specialization, rating, and active/inactive status.
-- **Request** — a client's initial ask to book a provider for a specific time, duration, and location. State machine: `pending → accepted / declined / expired`.
-- **Order** — the confirmed engagement that gets created after a request is accepted (or directly). Tracks amount, schedule, and has a richer state machine: `pending → confirmed → in_progress → completed`, with `canceled` and `rejected` side-exits.
-- **Payment** — tied to an order. Follows a hold-then-charge flow: `pending → held → charged`, with `refunded` as an alternative outcome.
-- **Card** — a client's stored payment method (tokenized, with brand/last-four/expiry).
-- **Review** — polymorphic (both clients and providers can author reviews), tied to a completed order.
-- **RecurringBooking** — a template for generating multiple requests for the same client/provider pair on a recurring schedule.
+- **Client** — the customer who books services. Has payment cards, notification preferences, and API token auth.
+- **Provider** — the service professional. Has a specialization, rating, and active/inactive status.
+- **Request** — a booking inquiry from a client to a specific provider. States: `pending → accepted / declined / expired`.
+- **Order** — a confirmed engagement. Created when a request is accepted (or directly). States: `pending → confirmed → in_progress → completed`, or `canceled / rejected`.
+- **Payment** — one per order, with a 10% platform fee. Lifecycle: `pending → held → charged → refunded`.
+- **Card** — stored payment cards for clients (tokenized with brand/last four).
+- **Review** — polymorphic (both clients and providers can author), tied to an order, with a 1-5 rating.
 
 ## Typical Workflow
 
-1. **Client creates a Request** for a specific provider, date/time, duration, and location.
-2. **Provider accepts or declines** the request (or it expires).
-3. On acceptance, an **Order** is created (linked to the request), initially `pending`.
-4. The order is **confirmed**, a **Payment** is created and **held** against the client's card.
-5. At the scheduled time, the order transitions to **in_progress** (started).
-6. When the session ends, the order is **completed**, and the payment is **charged**.
-7. Either party can leave a **Review** on the completed order.
+1. **Client creates a Request** to a specific provider, specifying schedule, duration, and location.
+2. **Provider accepts or declines** the request. Accepting automatically creates an **Order** (with a hardcoded 350,000 kopecks / 3,500 RUB price) and a **Payment** record.
+3. The order moves through **confirm → start → complete** as the service is delivered.
+4. The payment follows its own lifecycle: **hold → charge** (or refund on cancellation).
+5. After completion, either party can leave a **Review**.
 
-Cancellations (by client) and rejections (by provider) can happen before or during the engagement, with corresponding payment refunds.
-
-The app exposes both an **API** (token-authenticated, for client/provider apps) and an **Admin** interface (dashboard, CRUD for all entities).
+Notifications are sent at key transitions (request created, accepted, order created, etc.) via a `NotificationService`. There's also a read-only **admin panel** for viewing all entities.

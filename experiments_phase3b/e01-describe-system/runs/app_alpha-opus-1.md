@@ -3,25 +3,26 @@
 
 ---
 
-Here's what this system does:
+This is a **service booking/appointment platform** built as a Rails 8.1 API application. Here's the breakdown:
 
 ## Domain
 
-This is a **service booking marketplace** — a platform where **clients** book time with **providers** (likely derived from a childcare/babysitting domain called "Kidsout," but abstracted to generic names).
+A marketplace connecting **clients** with **service providers**, where clients can book time-based appointments.
 
 ## Main Entities
 
-- **Client** — a customer who requests services. Has email, phone, notification preferences, and an API token for authentication.
-- **Provider** — a service professional. Has a rating, specialization, active status, and similar auth/notification fields.
-- **Request** — the core transaction. A client asks a specific provider for a booking at a scheduled time, for a given duration, at a location. Requests follow a state machine: `pending → accepted / declined / expired`.
-- **Card** — payment cards belonging to a client (brand, last four, expiry, token). One can be marked as default.
+- **Client** — a customer who registers, stores payment cards, and books appointments. Authenticated via `api_token`. Has notification preferences (push/sms/email).
+- **Provider** — a service professional with a specialization and rating. Can be active/inactive. Also authenticated via `api_token`.
+- **Card** — a client's payment card (tokenized, storing brand/last four/expiry). One can be marked as `default`.
+- **Request** — the core entity: a booking request from a client to a provider, with a scheduled time, duration, location, and notes. Has a state machine: `pending → accepted / declined / expired`.
 
 ## Typical Workflow
 
-1. **Registration** — Clients and providers register via the API and receive an API token.
-2. **Client creates a Request** — specifying a provider, scheduled time, duration, location, and optional notes.
-3. **Provider responds** — they either **accept** (timestamps `accepted_at`) or **decline** (with a `decline_reason`). If neither happens in time, the request can **expire**.
-4. **Payment cards** — clients manage saved payment cards, setting one as default.
-5. **Admin dashboard** — read-only admin views for monitoring clients, providers, and requests.
+1. Clients and providers **register** via the API
+2. A client **adds a payment card** and optionally sets one as default
+3. A client **creates a request** to a specific provider — specifying when, how long, where, and any notes
+4. The provider is **notified** (push/sms/email, based on preferences)
+5. The provider **accepts** or **declines** the request (with a reason). Pending requests can also **expire**.
+6. An **admin dashboard** provides read-only oversight of all requests, clients, and providers
 
-The architecture is a JSON API (namespaced under `api/`) with token-based auth, plus a separate admin namespace for back-office visibility.
+The notification system currently logs to a file rather than sending real messages — it's either stubbed or early-stage.

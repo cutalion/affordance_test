@@ -3,27 +3,31 @@
 
 ---
 
-This is a **service marketplace platform** — a two-sided marketplace connecting **Clients** (who need services) with **Providers** (who deliver them). The domain resembles childcare/babysitting (derived from a "Kidsout"-like concept) but is generalized.
+Here's what this system does:
+
+## Domain
+
+This is a **services marketplace** — a Rails API application connecting **clients** who need services with **providers** who perform them. The currency defaults to RUB, suggesting a Russian market. Think of it as a platform for booking appointments with professionals (tutors, cleaners, repair workers, etc.).
 
 ## Main Entities
 
-- **Client** — a person who needs a service. Has payment cards, can post announcements, and create requests. Authenticated via API token.
-- **Provider** — a service professional with a specialization, rating, and active/inactive status. Accepts and fulfills requests.
-- **Request** — the core entity. Represents a booking of a provider by a client for a specific time, duration, location, and price. Has a rich state machine: `pending → accepted → in_progress → completed`, with alternative paths for `declined`, `expired`, `canceled`, and `rejected`.
-- **Announcement** — a "job posting" by a client. Goes through `draft → published → closed`. Providers can respond, which creates Requests linked to the announcement.
-- **Payment** — tied 1:1 to a request. Tracks money flow with statuses (`pending`, held, charged, refunded) and a platform fee.
-- **Card** — a client's saved payment method (tokenized). One can be marked as default.
-- **Review** — polymorphic (either client or provider can author). Left after a request is completed, with a rating and body.
+- **Client** — a person who needs a service. Has saved payment cards and notification preferences.
+- **Provider** — a professional who fulfills service requests. Has a specialization, rating, and active/inactive status.
+- **Announcement** — a client-created "job posting" (draft → published → closed). Describes what the client needs, with budget, location, scheduled time, and duration.
+- **Request** — the core entity. Represents a booking of a specific provider by a client, with a price, schedule, and location. Can optionally be linked to an announcement.
+- **Payment** — tied 1:1 to a request. Follows a hold → charge → (optional refund) lifecycle using the client's saved card.
+- **Card** — a client's saved payment card (tokenized, stores last four digits). One card can be marked as default.
+- **Review** — polymorphic (either client or provider can author). Left after a request is completed. Rating + text body.
 
 ## Typical Workflow
 
-1. **Client posts an Announcement** (draft → publish) describing what they need, when, where, and budget
-2. **Providers respond** to the announcement, creating a **Request** (possibly with a counter-offer via `proposed_amount_cents`)
-3. Alternatively, a **Client creates a Request directly** to a specific provider
-4. **Provider accepts** (or declines) the pending request
-5. At the scheduled time, the provider **starts** the session (accepted → in_progress)
-6. When done, the provider **completes** it (in_progress → completed)
-7. A **Payment** is processed against the client's card
-8. Both parties can leave **Reviews**
+1. **Client posts an announcement** (or contacts a provider directly) describing what they need.
+2. **Client creates a request** to a specific provider — specifying schedule, duration, price, and location. The provider is notified.
+3. **Provider accepts or declines**. On accept, a payment hold is placed on the client's default card.
+4. **Provider starts** the job (accepted → in_progress).
+5. **Provider completes** the job — the held payment is charged automatically.
+6. Both parties can leave **reviews** with a rating.
 
-The app exposes two interfaces: a JSON **API** (for client/provider mobile apps) and a read-only **Admin** dashboard.
+Alternative flows: the client can **cancel** (pending/accepted states), the provider can **reject** (accepted/in_progress), and cancellation/rejection triggers a **refund** if payment was already held.
+
+The app exposes two API surfaces: a token-authenticated **client/provider API** (`/api`) and a basic-auth **admin panel** (`/admin`) for read-only oversight.

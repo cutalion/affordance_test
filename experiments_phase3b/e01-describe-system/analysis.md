@@ -2,103 +2,112 @@
 
 > Blind comparison — app identities not revealed to analyzer.
 
-# Experiment Analysis: "Describe what this system does"
+## Analysis: "Describe This System" Across 5 Codebases
 
-## 1. Language/Framing
+### Dimension 1: Language/Framing
 
-**Pattern**: All 5 apps are described as a "service booking marketplace" connecting Clients with Providers. The framing is remarkably consistent — every run across every app uses nearly identical language ("two-sided platform," "derived from Kidsout/childcare").
+**Pattern**: All five apps are described as a "service marketplace/booking platform" — the AI converges on nearly identical domain framing regardless of structural complexity. The only meaningful variation is how the central entity "Request" is characterized:
 
-**Pairwise differences**:
+| App | How "Request" is framed | Consistency across runs |
+|-----|------------------------|------------------------|
+| **A** | "booking request," "booking inquiry" — an invitation/ask | 3/3 consistent |
+| **B** | "booking inquiry" — a precursor to the real work (Order) | 3/3 consistent |
+| **C** | "the core transaction," "a scheduled service booking" — the entire engagement | 3/3 consistent |
+| **D** | "direct booking inquiry" — one of two intake paths to Order | 3/3 consistent |
+| **E** | "the core transactional entity," "a booking of a specific provider" — does everything | 3/3 consistent |
 
-| Comparison | Finding |
-|---|---|
-| A vs B-E | App A is described as simpler — "booking inquiry" or "invitation"-style language. No mention of payments, orders, or reviews. |
-| B vs D | Both have Orders, but D's descriptions emphasize "two booking flows" or "three ways to engage" — the Announcement/Response pathway is prominently featured. |
-| C vs E | Both have Request as the central entity with a rich state machine, but C describes it as "the booking itself" while E describes Requests as potentially originating from Announcements — the AI recognizes the dual-origin pattern. |
-| B vs C | B cleanly separates Request (inquiry) from Order (engagement). C collapses everything into Request — the AI describes Request doing what Order does in B (in_progress, completed, payments). |
-| D vs E | D has distinct Request, Order, Announcement, Response entities. E merges Order into Request and describes Responses as creating Requests — the AI faithfully mirrors the god-object pattern. |
+**Key finding**: The AI promotes Request's importance in proportion to how much responsibility the model carries. In A, it's a simple ask. In C and E, it becomes "the core transaction." The AI doesn't just list states — it reframes the *narrative role* of Request to match what the code actually does. This is correct behavior, but it means the AI **naturalizes** accumulated debt rather than flagging it.
 
-**Confidence**: High. The framing differences are consistent across all 3 runs per app.
+**Confidence**: High (9 consistent characterizations across A/C/E divide).
 
-## 2. Architectural Choices
+---
 
-**Pattern**: The AI accurately reflects each app's actual entity structure:
+### Dimension 2: Architectural Choices
 
-| App | Entities Described | Consistency |
-|---|---|---|
-| A | Client, Provider, Request, Card | 3/3 runs identical |
-| B | Client, Provider, Request, Order, Payment, Card, Review, RecurringBooking | 3/3 runs identical |
-| C | Client, Provider, Request, Payment, Card, Review | 3/3 runs identical — no Order entity |
-| D | Client, Provider, Request, Order, Announcement, Response, Payment, Card, Review, RecurringBooking | 3/3 runs identical |
-| E | Client, Provider, Request, Announcement, Payment, Card, Review | 3/3 runs — no Order, no Response model |
+**Pattern**: The AI accurately mirrors the model graph of each codebase without inventing or omitting entities.
 
-**Key finding**: The AI correctly identifies that C has no Order (Request absorbs that role) and E has no Response model (Requests serve that purpose). It does not invent entities that don't exist, and it does not miss entities that do exist.
+| App | Entities reported | Matches expected architecture? |
+|-----|------------------|-------------------------------|
+| **A** | Client, Provider, Card, Request | Yes — minimal invitation model |
+| **B** | Client, Provider, Card, Request, Order, Payment, Review | Yes — clean separation |
+| **C** | Client, Provider, Card, Request, Payment, Review | Yes — Request absorbs Order's role |
+| **D** | Client, Provider, Card, Request, Order, Announcement, Response, Payment, Review | Yes — clean multi-path |
+| **E** | Client, Provider, Card, Request, Announcement, Payment, Review | Yes — no Response model; Requests serve double duty |
 
-**Confidence**: High.
-
-## 3. Model Placement
-
-This prompt asks for description, not code changes, so model placement isn't directly tested. However, the AI's entity attribution reveals how it *understands* responsibility:
-
-- **App B**: Payment is "tied 1:1 to an Order" (correct — clean separation)
-- **App C**: Payment is "tied 1:1 to a Request" (correct — Request absorbed Order's role)
-- **App D**: Reviews are "tied to a completed Order" (correct)
-- **App E**: Reviews are "tied to a completed Request" (correct — Request is the god object)
-
-The AI correctly identifies which entity owns payments and reviews in each app, suggesting it would place new features on the right model.
-
-**Confidence**: Medium (indirect evidence only).
-
-## 4. State Reuse vs Invention
-
-**Pattern**: The AI consistently reports the actual states from each codebase without inventing new ones.
-
-| App | States Reported | Accuracy |
-|---|---|---|
-| A | Request: pending → accepted / declined / expired | Correct per CLAUDE.md (invitation semantics) |
-| B | Request: pending → accepted/declined/expired; Order: pending → confirmed → in_progress → completed + canceled/rejected | Correct |
-| C | Request: pending → accepted → in_progress → completed + declined/expired/canceled/rejected | Correct — these are the debt-laden states |
-| D | Same as B + Announcement: draft → published → closed; Response: pending → selected/rejected | Correct |
-| E | Request: pending → accepted → in_progress → completed + declined/expired/canceled/rejected; Announcement: draft → published → closed | Correct — no Response states because Responses ARE Requests |
-
-No run across any app invented states that don't exist. No run omitted states that do exist (with minor presentation variations).
+**Notable**: In App E, the AI correctly identifies that announcements generate Requests (not a separate Response model). Run 2 is most explicit: *"A provider views published announcements and responds to one, which creates a request."* However, no run flags this as architecturally unusual — it's presented as a natural design choice.
 
 **Confidence**: High.
 
-## 5. Correctness
+---
+
+### Dimension 3: Model Placement
+
+Not applicable for this experiment (descriptive prompt, no feature implementation requested).
+
+---
+
+### Dimension 4: State Reuse vs. Invention
+
+**Pattern**: The AI reports states directly from each codebase without invention or omission.
+
+| App | Request states reported | Accurate? |
+|-----|------------------------|-----------|
+| **A** | pending → accepted / declined / expired | Yes |
+| **B** | pending → accepted / declined / expired | Yes |
+| **C** | pending → accepted → in_progress → completed + declined/expired/canceled/rejected | Yes |
+| **D** | pending → accepted / declined / expired | Yes |
+| **E** | pending → accepted → in_progress → completed + declined/expired/canceled/rejected | Yes |
+
+The AI does not conflate states across models. In B and D, it correctly keeps Request states simple and attributes the richer lifecycle to Order. In C and E, it correctly reports the expanded Request states.
+
+**Confidence**: High — all 15 runs report states accurately.
+
+---
+
+### Dimension 5: Correctness
 
 **Errors found**:
 
-- **App A, Run 1**: States "No API controllers are defined yet" — this needs verification but is a factual claim about the codebase, not a logic error. Other A runs mention API endpoints existing, so Run 2 may be wrong.
-- **App B, Run 2**: Describes the Announcement flow as "(presumably creates an Order from the chosen response)" — the hedging word "presumably" is notable but the inference is actually correct.
-- **App E, all runs**: The AI correctly identifies that provider responses to announcements create Requests, which is the actual (debt-laden) design. It does not flag this as unusual or problematic — it reports it as if it's a natural design choice.
+- **App B, Run 3**: States a "hardcoded 350,000 kopecks / 3,500 RUB price" — this is likely accurate to the code but the run uniquely surfaces implementation details the others abstract away. Minor inconsistency in reporting granularity, not a factual error.
+- **App C, Run 1**: Describes the system as "Uber-style" — a slight overreach in analogy (Uber is real-time dispatch, this is scheduled bookings), but not a logical error.
+- **App E, Run 2**: Describes the workflow as *client* accepting/declining requests from providers responding to announcements. This inverts the actor model compared to Runs 1 and 3 (where the *provider* accepts). This is a notable inconsistency — in app_echo, AcceptService branches on `announcement.present?`, and Run 2 appears to have gotten confused about who does what in the announcement flow.
 
-**Notably absent errors**: No run incorrectly describes state transitions. No run confuses which entity has which states. No run invents nonexistent relationships.
+**Confidence**: Medium-high. Most runs are accurate; the E-Run-2 actor inversion is the only clear logical error across 15 runs.
 
-**Confidence**: High.
+---
 
-## 6. Scope
+### Dimension 6: Scope
 
-**Pattern**: All responses stay tightly on-task. They describe what exists without suggesting improvements, flagging debt, or proposing changes. The descriptions are observational, not prescriptive.
+**Pattern**: All responses stay tightly on task. No run suggests features, proposes improvements, or critiques the architecture. The descriptions are observational.
 
-**Notable difference**: App A responses are noticeably shorter and simpler (reflecting the simpler codebase). App D and E responses are longer and more structured, with sub-sections for different workflows. This scaling is appropriate — the AI's verbosity tracks with actual system complexity.
-
-**Outlier**: App C Run 2 adds an analogy ("Think of it like an Uber-style marketplace but for scheduled services") that no other run uses. Minor stylistic variation, not a scope issue.
+One subtle scope variation: **App D** runs consistently describe the two booking paths (direct request vs. announcement/bidding) as a first-class structural distinction, using headers and subsections. This organizational choice reflects the codebase's clean separation. **App E** runs, by contrast, mention announcements almost as an afterthought — typically a single paragraph at the end. This mirrors the code: in E, announcements are bolted onto the Request model rather than being a separate domain concept.
 
 **Confidence**: High.
 
 ---
 
-## Notable Outliers
+### Pairwise Comparisons
 
-1. **App E never flags the god-object pattern**. When Responses ARE Requests and the Request model handles invitation, booking, fulfillment, and announcement-response semantics, the AI describes this as if it's a normal, intentional design. It does not say "this seems like a lot of responsibility for one model" or hint at debt. This is significant — the AI normalizes whatever it finds.
+**A vs. C** (invitation vs. god-object Request): The starkest contrast. Both have a model called "Request," but the AI describes completely different systems. A's Request is a simple ask with 3 terminal states. C's Request is "the core transaction" with 8 states spanning the entire service lifecycle. The AI correctly tracks the semantic drift but *never mentions* that Request is doing something unusual in C.
 
-2. **App A Run 2** claims API controllers don't exist yet, while Runs 1 and 3 describe API endpoints. One of these is wrong.
+**B vs. C** (clean vs. debt at Stage 1): B has Request + Order; C collapses them. The AI describes B's workflow in 6 clear steps with distinct phases (booking → fulfillment → payment). C's workflow is described in similar steps but everything hangs on Request. Payment in B is tied to Order; in C it's tied to Request. The AI accurately reflects this without commenting on the design difference.
 
-3. **App D consistently identifies three distinct pathways to an Order** (direct request, announcement→response, direct order/recurring). This is the only app where the AI emphasizes multiple entry points, reflecting the genuine architectural complexity.
+**D vs. E** (clean vs. debt at Stage 2): D gets the clearest structural descriptions — all three runs use headers to separate the two booking flows and the fulfillment phase. E's descriptions are muddier: the announcement flow is inconsistently explained across runs (Run 1 mentions it briefly, Run 2 gets the actor model wrong, Run 3 handles it best). The debt in E's codebase produces measurably less consistent AI descriptions.
+
+**B vs. D** (Stage 1 clean vs. Stage 2 clean): Both get accurate, well-structured descriptions. D's added complexity (Announcement + Response) is handled cleanly. The AI scales well with *clean* complexity.
+
+**C vs. E** (Stage 1 debt vs. Stage 2 debt): Both have Request as a god object. E adds the announcement dimension. C gets described more consistently (3/3 runs agree on workflow). E shows the only factual error in the entire dataset (Run 2 actor inversion). More debt = more description variance.
 
 ---
 
-## Bottom Line
+### Notable Outliers
 
-The AI is an accurate mirror, not a critical reviewer. Across all 5 apps and 15 runs, the descriptions faithfully reflect each codebase's actual entity structure, state machines, and workflows — including debt-laden designs — without ever flagging architectural problems, naming mismatches, or responsibility overload. App E's Request model serves as invitation, booking, fulfillment tracker, and announcement response simultaneously, yet the AI describes this with the same neutral, approving tone it uses for App B's clean separated design. This means that when an AI encounters technical debt, it will not warn you about it — it will learn the debt as "how this system works" and propagate it forward, making the debt invisible and self-reinforcing. The most important finding is not that the AI gets things wrong, but that it gets the *description* right while completely missing — or at least never surfacing — the *design quality* dimension.
+1. **App E, Run 2** — the only run across all 15 that gets an actor role wrong (client accepts instead of provider). This is the highest-debt codebase.
+2. **App C, Run 3** — the only run that includes an ASCII state diagram. Notably, this is the debt codebase where such a diagram is most useful (8 states with complex transitions).
+3. **App D, all runs** — consistently the best-organized descriptions, with the clearest structural communication. Clean architecture begets clean descriptions.
+
+---
+
+### Bottom Line
+
+**The AI accurately describes what each codebase does but systematically normalizes technical debt as intentional design.** When Request absorbs Order's lifecycle (App C) or when Responses are eliminated in favor of overloaded Requests (App E), the AI presents these as natural architectural choices rather than accumulated debt — it reshapes its narrative framing to make the god object feel coherent. This means an AI "system description" cannot be used to detect debt: a clean two-model system (B) and a debt-laden single-model system (C) both receive equally confident, equally plausible descriptions. The only measurable signal of debt is *consistency*: the highest-debt codebase (E) produced the only factual error and the most inter-run variance, suggesting that architectural confusion in code propagates as descriptive confusion in AI output.

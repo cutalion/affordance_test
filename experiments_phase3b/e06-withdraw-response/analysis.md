@@ -2,106 +2,119 @@
 
 > Blind comparison — app identities not revealed to analyzer.
 
-## Analysis: App D (Clean) vs App E (Debt) — "Withdraw Response to Announcement"
+## Cross-App Analysis: Provider Withdraw Response
 
 ### 1. Language/Framing
 
-**App D (all 3 runs):** Consistently uses "response" language — "withdraw their response," "provider owns the response," "response is already selected." The language maps directly to the domain model. Descriptions are terse and accurate.
+**App D (all 3 runs):** Consistently uses clean, model-aligned language — "withdraw the response," "response is withdrawn." The domain language maps directly to code: `Response` model, `Responses::WithdrawService`, `response_withdrawn` notification. No confusion or hedging about what entity is being operated on.
 
-**App E (runs 1-2):** Uses "request" language throughout — "withdraw the request," "not your request," "cannot withdraw request in accepted state." The notification event is `response_withdrawn` (correct domain concept), but the service and controller language follows the model name. Run 3 is more domain-aware, saying "withdraw responses to announcements" and adding a guard `unless @request.announcement_id.present?`.
+**App E (all 3 runs):** Language is strained. The AI oscillates between domain language ("withdraw their response to an announcement") and code language ("withdraw request," "Not your request"). Run 1's summary explicitly calls it out: "Withdrawal is only for announcement responses — direct requests use cancel/decline." The AI must explain what the code *means* rather than letting the code speak for itself. Error messages like "Not your request" and "Cannot withdraw request" are technically accurate but semantically wrong — the user is withdrawing a *response*, not a *request*.
 
-**Pattern:** App D's clean model naming produces language that matches the prompt naturally. App E forces the AI to talk about "withdrawing a request" when the prompt asked about "withdrawing a response" — a semantic mismatch imposed by the god object.
+**Confidence: High.** The framing difference is consistent across all 6 runs.
+
+---
 
 ### 2. Architectural Choices
 
-**App D (all 3 runs):** Identical architecture across all runs:
-- `withdrawn` state + `withdraw` event on Response model
-- `Responses::WithdrawService`
-- `withdraw` action on `ResponsesController`
+**App D:** Identical architecture across all 3 runs:
+- Add `withdrawn` state + `withdraw` event to `Response` model
+- New `Responses::WithdrawService`
+- New controller action on `ResponsesController`
 - Route: `PATCH /api/responses/:id/withdraw`
+- No migration needed (state is a string column already)
+- No new database columns
 
-**App E (runs 1-2):** Near-identical architecture:
-- `withdrawn` state + `withdraw` event on Request model
-- `Requests::WithdrawService`
-- `withdraw` action on `RequestsController`
+**App E:** Consistent architecture across 3 runs, but heavier:
+- Add `withdrawn` state + `withdraw` event to `Request` model (the god object)
+- New `Requests::WithdrawService`
+- New controller action on `RequestsController`
 - Route: `PATCH /api/requests/:id/withdraw`
-- Added `withdraw_reason`, `withdrawn_at` fields, reason validation
+- **Migration required** — all 3 runs add `withdrawn_at` (datetime); Runs 1 and 3 also add `withdraw_reason` (text)
+- Service must include guard: `announcement_id.present?` to prevent withdrawing non-announcement requests
 
-**App E (run 3):** Different routing decision:
-- Same model/service changes
-- But placed the controller action on `AnnouncementsController` as `withdraw_response`
-- Route: `PATCH /api/announcements/:id/withdraw_response`
-- Takes `request_id` as a parameter
-- Added guard: "Can only withdraw responses to announcements"
+**Key difference:** App D needs zero migrations. App E needs 1-2 new columns because the `Request` model already has `_reason` and `_at` columns for other state transitions, and the AI follows that pattern. The god object accumulates more columns.
 
-**Pattern:** App D converges perfectly (3/3 identical). App E shows divergence — 2/3 runs put it on RequestsController, 1/3 on AnnouncementsController. The run 3 variant is arguably more semantically correct (it's about announcement responses), but architecturally awkward (finding a request by ID within an announcement context).
+**Confidence: High.**
+
+---
 
 ### 3. Model Placement
 
-**App D:** Correct — `withdrawn` state added to Response model. The prompt says "withdraw their response" and there's a Response model. Perfect alignment. **Confidence: high.**
+**App D:** All 3 runs correctly place the feature on the `Response` model. This is unambiguous — the prompt says "withdraw their response" and there's a `Response` model. Perfect alignment.
 
-**App E:** The only option is the Request model (no Response model exists). All 3 runs correctly add the state there. Run 3 adds the extra guard ensuring only announcement-linked requests can be withdrawn — showing awareness that not all Requests are "responses to announcements." **Confidence: high.**
+**App E:** All 3 runs correctly place the feature on the `Request` model, which is the only option since responses ARE requests in this architecture. The AI correctly identifies that `announcement_id` distinguishes a "response" from a "direct request" and adds a guard clause accordingly.
 
-### 4. State Reuse vs Invention
+**Confidence: High.** Both apps get placement right, but App E requires the AI to understand that `Request` serves double duty.
 
-**Both apps:** All runs create a new `withdrawn` state. This is correct — no existing state captures this concept.
+---
 
-**App D:** Simple — just `pending → withdrawn`. No timestamps, no reason fields. The Response model is lightweight.
+### 4. State Reuse vs. Invention
 
-**App E:** More elaborate — `pending → withdrawn` plus `withdrawn_at` timestamp, `withdraw_reason` field with presence validation. This mirrors the existing pattern in the Request model (which already has `decline_reason`, `cancel_reason`, `reject_reason`, `accepted_at`, `expired_at`, etc.).
+**App D:** All runs invent a new `withdrawn` state. This is correct — no existing state covers this semantics. The state machine is simple (pending → withdrawn), paralleling the existing pending → selected and pending → rejected transitions.
 
-**Pattern:** App E's god object has established conventions (reason fields, timestamps for each state) that the AI faithfully replicates. This is both a sign of good pattern-following and a consequence of accumulated complexity — a simple withdrawal requires more ceremony.
+**App E:** All runs invent a new `withdrawn` state on the `Request` model. This is also correct, but more consequential — the Request model already has 8 states (pending, accepted, in_progress, completed, declined, expired, canceled, rejected). Adding `withdrawn` makes it 9. The AI in all 3 runs correctly limits the transition to `from: :pending` only.
+
+**Interesting divergence within App E:** Runs 1 and 3 require a `withdraw_reason` (following the pattern of `decline_reason`, `cancel_reason`, `reject_reason`). Run 2 does *not* require a reason. Run 2's approach is lighter but inconsistent with the existing codebase patterns.
+
+**Confidence: High.**
+
+---
 
 ### 5. Correctness
 
-**App D (all 3 runs):** No bugs detected. Transition from `pending` only. Tests cover selected/rejected guard rails. Service checks ownership. Notification fires. Clean.
+**App D:**
+- Run 1: Correct. Clean implementation.
+- Run 2: Correct, and adds an extra guard — checks `announcement.published?` before allowing withdrawal. This is a reasonable business rule that the other runs omit.
+- Run 3: Correct. Identical to Run 1 in substance.
 
-**App E (runs 1-2):** No bugs. Transition from `pending` only. Same quality of guards. The `update!(withdrawn_at: Time.current)` inside an AASM `after` block is slightly risky (double save — AASM saves the state, then `update!` saves again), but follows the existing pattern in the codebase.
+**App E:**
+- Run 1: Correct. Adds both `withdraw_reason` and `withdrawn_at`. Controller validates `reason` presence before calling service. Service also validates reason — **double validation** (controller + service), which is redundant but not a bug.
+- Run 2: Correct but inconsistent. Adds `withdrawn_at` but no `withdraw_reason` column. No reason required. This breaks the established pattern where every terminal state in the Request model has a corresponding `_reason` field.
+- Run 3: Correct. Same structure as Run 1 (both columns, reason required, double validation in controller and service).
 
-**App E (run 3):** The `withdraw_response` action on AnnouncementsController doesn't use `handle_service_result` — it has inline render logic. This is inconsistent with the rest of the codebase but not a bug. The service adds an `announcement_id.present?` guard that the other runs lack — a domain-appropriate check.
+**No bugs detected in any run.** All state transitions are valid.
 
-**Confidence: high** — no logical errors found in any run.
+**Confidence: High.**
+
+---
 
 ### 6. Scope
 
-**App D (all 3 runs):** Minimal scope. Model state, service, controller action, route, tests. No extra fields. No extra JSON changes. Tight.
+**App D:** All 3 runs stay tightly on task. No extra features, no unnecessary columns, no gold-plating. Run 2 adds the announcement-published check, which is arguable scope creep but defensible.
 
-**App E (all 3 runs):** Broader scope due to model conventions:
-- Added `withdraw_reason` and `withdrawn_at` to JSON response
-- Added presence validation for `withdraw_reason`
-- Added timestamp in AASM after callback
-- Run 3 added announcement-specific guard
+**App E:** 
+- Runs 1 and 3 add `withdraw_reason` + `withdrawn_at` columns, validation, and expose both in the JSON response. This is additional scope driven by **pattern-following** — the existing codebase has `decline_reason`, `cancel_reason`, `reject_reason`, so the AI replicates the pattern. This is arguably correct behavior (consistency) but it's still more work than strictly needed.
+- Run 2 adds only `withdrawn_at`, which is more minimal.
+- All runs add the `announcement_id.present?` guard — this is necessary scope unique to App E because the model serves double duty.
 
-**Pattern:** App E's god object forces more touch points. The reason/timestamp convention in the existing model creates implicit expectations that the AI follows, expanding scope even though no one asked for reason tracking.
+**Confidence: High.**
 
 ---
 
 ### Pairwise Comparison: App D vs App E
 
 | Dimension | App D (Clean) | App E (Debt) |
-|-----------|--------------|-------------|
-| Convergence | 3/3 identical diffs | 2/3 identical, 1 divergent routing |
-| Files touched | 5 (model, service, controller, routes, specs) | 6-7 (same + migration-worthy fields, JSON changes) |
-| Lines added | ~100 | ~130-150 |
-| Domain fidelity | "response" language matches prompt | "request" language mismatches prompt |
-| Extra complexity | None | Reason field, timestamp, validation, JSON fields |
-| Notification event | `:response_withdrawn` | `:response_withdrawn` (same — correct) |
-| Routing consistency | 3/3 same route | 2/3 on RequestsController, 1/3 on AnnouncementsController |
+|-----------|--------------|--------------|
+| **Lines changed** | ~100-120 lines, 0 migrations | ~150-200 lines, 1 migration |
+| **New columns** | 0 | 1-2 (withdrawn_at, withdraw_reason) |
+| **Guard clauses in service** | 1 (ownership) | 2-3 (ownership + announcement check + reason) |
+| **Consistency across runs** | Nearly identical diffs | Meaningful divergence (reason required or not) |
+| **Semantic clarity** | "withdraw response" = obvious | "withdraw request" = confusing, needs explanation |
+| **Risk of side effects** | Low — isolated model | Moderate — god object has 9 states, shared controller |
+| **Pattern pressure** | None — new model, clean slate | Strong — existing `_reason`/`_at` patterns pull AI into adding columns |
+
+---
 
 ### Notable Outliers
 
-- **App E Run 3** is the only run across both apps that questions whether the withdrawal should be scoped to announcement responses specifically. It adds `unless @request.announcement_id.present?` — a guard that reflects genuine understanding that in the debt app, a Request can be either a direct booking or an announcement response, and withdrawal only makes sense for the latter. This is the most domain-aware response across all 6 runs.
+1. **App D Run 2** is the only run (across both apps) that checks whether the announcement is still published before allowing withdrawal. This is a thoughtful business rule that all other runs miss.
 
-- **App D's perfect convergence** (byte-identical diffs across 3 runs, down to service code and test descriptions) is striking. The clean separation of Response as its own model leaves essentially one correct implementation path.
+2. **App E Run 2** is the only run that omits `withdraw_reason`, breaking the established pattern. This makes it the lightest implementation but the least consistent with the codebase.
 
-### Confidence Levels
+3. **App E Runs 1 & 3** both have redundant reason validation in both the controller (`params[:reason].blank?`) and the service (`@reason.blank?`). App D runs never have this redundancy because they don't require a reason at all.
 
-- Language/framing differences: **Very high** — directly observable
-- Architectural convergence (D > E): **High** — 3/3 vs 2/3
-- Scope expansion in debt app: **High** — consistent across all E runs
-- Correctness equivalence: **High** — no bugs in either
-- Run 3 outlier significance: **Medium** — single instance, could be noise
+---
 
 ### Bottom Line
 
-App D's clean domain model (separate Response entity) produces perfectly convergent, minimal implementations across all three runs — identical diffs, correct language, tight scope. App E's god object (Request = response to announcement) forces the AI to add more ceremony (reason fields, timestamps, JSON changes) following accumulated conventions, introduces a language mismatch ("withdraw a request" vs the prompt's "withdraw a response"), and causes routing divergence (2/3 on RequestsController, 1/3 on AnnouncementsController). The most interesting signal is that divergence: when the domain concept ("response to an announcement") doesn't have its own model, the AI must choose where the feature lives, and different runs reach different answers — the clean architecture eliminates this ambiguity entirely.
+App D's clean separation (dedicated `Response` model) produces remarkably consistent, minimal implementations across all 3 runs — identical model changes, identical service structure, zero migrations, and clear domain language. App E's god-object architecture (`Request` = everything) forces the AI into more complex implementations with guard clauses, migrations, extra columns driven by pattern-following pressure, and semantic confusion where error messages say "request" when they mean "response." The most telling signal is **cross-run consistency**: App D's 3 runs are near-identical diffs, while App E's 3 runs diverge on whether to require a reason, how many columns to add, and whether to validate in the controller or service — the god object's accumulated patterns create ambiguity about which conventions to follow, producing measurably less deterministic AI output.

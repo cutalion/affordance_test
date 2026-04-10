@@ -3,26 +3,32 @@
 
 ---
 
-This is a **service marketplace** — a two-sided platform connecting **Clients** with **Providers** for scheduled, on-location services (derived from a kids' entertainment/activity booking domain called "Kidsout").
+This is a **service marketplace / on-demand booking platform** built with Rails.
+
+## Domain
+
+A two-sided marketplace connecting **Clients** (who request services) with **Providers** (who fulfill them). Think of it like an Uber-style model — a client books a provider for a scheduled time slot and pays via a stored card.
 
 ## Main Entities
 
-- **Client** — a customer who books and pays for services. Has name, email, phone, notification preferences, and an API token for authentication.
-- **Provider** — a service professional with a specialization, rating, and active/inactive status. Also authenticated via API token.
-- **Request** — the central entity. A Client creates a Request for a specific Provider at a scheduled time, location, duration, and price (`amount_cents`). Supports recurring bookings via `recurring_group_id`.
-- **Card** — a Client's saved payment card (brand, last four, expiry, tokenized). One card can be marked as default.
-- **Payment** — tracks the financial lifecycle of a Request: pending → held → charged (or refunded). Includes platform fees (`fee_cents`).
-- **Review** — polymorphic (either Client or Provider can be the author). One review per author per Request, with a numeric rating and optional text body.
+| Entity | Role |
+|---|---|
+| **Client** | Registers, stores payment cards, creates service requests, leaves reviews |
+| **Provider** | Registers, accepts/declines requests, delivers the service, has a rating |
+| **Card** | A client's stored payment method (tokenized, with brand/last-four/expiry), one marked as default |
+| **Request** | The core transaction — a scheduled booking with amount, duration, and a state machine lifecycle |
+| **Payment** | Tracks money flow for a request: pending → held → charged (or refunded) |
+| **Review** | Post-completion rating (1–5) left by either the client or provider |
 
 ## Typical Workflow
 
-1. **Client creates a Request** — specifying provider, schedule, duration, location, and amount.
-2. **Provider accepts or declines** — declining requires a reason. If neither happens in time, the request can expire.
-3. **Provider starts the service** — transitions the request to `in_progress`.
-4. **Provider completes the service** — marks it `completed`, triggering payment processing (hold → charge).
-5. **Either party can cancel** (before start, with a reason) or the **provider can reject** (after accepting, with a reason).
-6. **Both parties leave reviews** after completion.
+1. **Registration** — Client and Provider sign up and receive API tokens.
+2. **Card setup** — Client adds a payment card and marks one as default.
+3. **Booking** — Client creates a **Request** specifying a provider, scheduled time, duration, and amount. It starts in `pending` state.
+4. **Provider response** — Provider either **accepts** or **declines** the request (with a reason). Unhandled requests can **expire**.
+5. **Service delivery** — Once accepted, the provider **starts** the request (moves to `in_progress`), then **completes** it.
+6. **Cancellation/rejection** — Either party can **cancel** (from pending/accepted) or the provider can **reject** (from accepted/in_progress), both requiring a reason.
+7. **Payment** — A payment record tracks the charge lifecycle: hold → charge on completion, or refund on cancellation.
+8. **Review** — After completion, both client and provider can leave a one-time review with a 1–5 rating.
 
-The state machine is: `pending → accepted → in_progress → completed`, with branches to `declined`, `expired`, `canceled`, and `rejected`.
-
-The app exposes a JSON API for clients/providers and a read-only admin panel for back-office oversight (dashboard, requests, clients, providers, payments). Business logic lives in service objects under `Requests::*Service`.
+There's also a read-only **Admin** panel for viewing requests, clients, providers, and payments.

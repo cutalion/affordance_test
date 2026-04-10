@@ -3,44 +3,49 @@
 
 ---
 
-Here's the happy path, step by step. The system has a two-phase lifecycle: **Request** then **Order**.
+Here's the happy path for an **Order** — the main entity in this system — step by step:
 
 ---
 
-### Phase 1: Request (matching client with provider)
+### 1. Client and Provider register
+- A **Client** registers via `POST /api/clients/register` and receives an `api_token`.
+- A **Provider** registers via `POST /api/providers/register` and receives an `api_token`.
 
-1. **Client creates a Request** — specifies `scheduled_at`, `duration_minutes`, and picks a `provider`. The request starts in **`pending`** state.
+### 2. Client adds a payment card
+- The client adds a card via `POST /api/cards` and marks it as default (`PATCH /api/cards/:id/default`). This is required later for payment holds.
 
-2. **Provider accepts the Request** — transitions to **`accepted`**, records `accepted_at`. (Alternatively the provider could decline, or the request could expire — but on the happy path, it's accepted.)
+### 3. Client creates a Request
+- The client calls `POST /api/requests` with a `provider_id`, `scheduled_at`, `duration_minutes`, location, and notes.
+- `Requests::CreateService` saves the Request in **pending** state and notifies the provider.
 
-### Phase 2: Order (fulfillment and payment)
+### 4. Provider accepts the Request
+- The provider calls `PATCH /api/requests/:id/accept`.
+- `Requests::AcceptService` transitions the Request from **pending** → **accepted** and automatically creates an **Order** (with a hardcoded amount of 350,000 copecks / 3,500 RUB) plus a **Payment** record in **pending** status. The client is notified.
 
-3. **Order is created** — linked to the accepted Request. It starts in **`pending`** state with `scheduled_at`, `duration_minutes`, `amount_cents`, and `currency` set. A **Payment** record is also created (status: `pending`).
+### 5. Provider confirms the Order
+- The provider calls `PATCH /api/orders/:id/confirm`.
+- `Orders::ConfirmService` transitions the Order from **pending** → **confirmed** and notifies the client.
 
-4. **Order is confirmed** — transitions to **`confirmed`**.
+### 6. Provider starts the Order
+- The provider calls `PATCH /api/orders/:id/start`.
+- `Orders::StartService` transitions the Order from **confirmed** → **in_progress**, records `started_at`, and notifies the client.
 
-5. **Payment is held** — the payment moves from `pending` to **`held`** (pre-authorization against the client's card), recording `held_at`.
+### 7. Provider completes the Order
+- The provider calls `PATCH /api/orders/:id/complete`.
+- `Orders::CompleteService` transitions the Order from **in_progress** → **completed**, records `completed_at`.
+- If the payment was previously held (status `"held"`), `PaymentGateway.charge` is called to finalize the charge against the client's default card.
+- Both client and provider are notified.
 
-6. **Order starts** — at the scheduled time, the order transitions to **`in_progress`**, recording `started_at`.
-
-7. **Order completes** — after the service is delivered, transitions to **`completed`**, recording `completed_at`.
-
-8. **Payment is charged** — the held payment is captured: status moves to **`charged`**, recording `charged_at`.
-
-### Phase 3: Reviews
-
-9. **Both parties leave reviews** — the client and provider each create a **Review** on the completed order (rating 1-5, optional body). The system enforces that only completed orders can be reviewed, and each party can review only once.
+### 8. Both parties leave Reviews
+- Either party calls `POST /api/orders/:id/reviews` with a `rating` (1–5) and optional `body`.
+- Reviews are only allowed on completed orders, and each author can review a given order only once.
 
 ---
 
-**Summary flow:**
+**State machines summarized:**
 
-```
-Request(pending) → accept → Request(accepted)
-    ↓
-Order(pending) → confirm → Order(confirmed) → start → Order(in_progress) → complete → Order(completed)
-    ↓                           ↓                                                          ↓
-Payment(pending)          Payment(held)                                              Payment(charged)
-                                                                                           ↓
-                                                                                    Reviews by both parties
-```
+- **Request:** `pending` → `accepted` (happy) / `declined` / `expired`
+- **Order:** `pending` → `confirmed` → `in_progress` → `completed` (happy) / `canceled` / `rejected`
+- **Payment:** `pending` → `held` → `charged` (happy) / `refunded`
+
+The system is essentially a service marketplace where clients book providers, the provider confirms and fulfills the work, payment is captured on completion, and both sides review each other.

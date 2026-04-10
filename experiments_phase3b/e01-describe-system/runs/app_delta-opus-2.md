@@ -3,27 +3,26 @@
 
 ---
 
-This is a **service marketplace platform** — a two-sided marketplace connecting **Clients** (who need services) with **Providers** (who perform them). The domain is derived from Kidsout (likely a childcare/babysitting marketplace), generalized with neutral naming.
+This is a **service marketplace platform** — a Rails API for connecting **clients** with **service providers** (likely for personal/home services, given the scheduling, location, and duration-based structure). The currency is RUB (Russian rubles).
 
 ## Main Entities
 
-- **Client** — a person seeking services. Has payment cards, notification preferences.
-- **Provider** — a service professional with a specialization, rating, and active status.
-- **Announcement** — a client broadcasts a need (draft → published → closed). Think "I need a babysitter Saturday evening."
-- **Response** — a provider replies to an announcement with a proposed price and message. One response per provider per announcement.
-- **Request** — a client directly asks a specific provider for a booking (pending → accepted/declined/expired).
-- **Order** — the confirmed booking itself (pending → confirmed → in_progress → completed, or canceled/rejected). Tracks schedule, duration, amount, and links back to the originating request if any.
-- **Payment** — financial transaction tied to an order. Supports hold → charge → refund flow.
-- **Card** — stored payment cards for a client (with a default).
-- **Review** — polymorphic (both client and provider can leave reviews on a completed order).
-- **RecurringBooking** — a template for repeated sessions between a client and provider.
+- **Client** — a person who needs a service. Has payment cards, can create requests/orders/announcements, and leave reviews.
+- **Provider** — a service professional with a specialization and rating. Accepts requests, fulfills orders, responds to announcements.
+- **Request** — a direct booking inquiry from a client to a specific provider. States: `pending → accepted / declined / expired`. Accepting auto-creates an Order.
+- **Announcement** — a broadcast-style "job posting" by a client. States: `draft → published → closed`. Providers submit Responses to compete for the work.
+- **Response** — a provider's bid on an announcement, optionally with a proposed price. States: `pending → selected / rejected`.
+- **Order** — the core transactional entity: a confirmed service engagement between a client and provider, with scheduled time, location, duration, and price. States: `pending → confirmed → in_progress → completed` (or `canceled / rejected`). Automatically creates a Payment.
+- **Payment** — tracks the money flow for an order (with a 10% platform fee). States: `pending → held → charged → refunded`.
+- **Card** — a client's stored payment card (with a default-card mechanism).
+- **Review** — polymorphic; both clients and providers can review each other after an order is completed (rating 1–5).
 
 ## Typical Workflows
 
-1. **Direct booking**: Client sends a **Request** to a specific Provider → Provider accepts → an **Order** is created → Payment is held → Service happens → Order completed → Payment charged → Reviews exchanged.
+1. **Direct booking**: Client creates a **Request** to a specific provider → Provider **accepts** (auto-creates an Order + Payment) or **declines** → Order progresses through confirm → start → complete → both parties leave Reviews.
 
-2. **Announcement/bidding**: Client creates an **Announcement** describing the need → Publishes it → Providers submit **Responses** with proposed amounts → Client picks a provider → (presumably creates an Order from the chosen response) → same fulfillment flow.
+2. **Announcement/bidding**: Client creates an **Announcement** and publishes it → Providers submit **Responses** (bids) → Client **selects** a response (or rejects others) → (presumably an Order is created from the selected response).
 
-3. **Recurring**: A **RecurringBooking** generates multiple Orders for repeated sessions.
+3. **Payment lifecycle**: When an Order is created, a Payment is created in `pending` status with a 10% fee. It can then be held, charged on completion, or refunded on cancellation.
 
-The app exposes both an **API** (token-authenticated, for client/provider mobile apps) and an **Admin** interface (for back-office management).
+There's also an **admin panel** (read-only views) for monitoring all entities.

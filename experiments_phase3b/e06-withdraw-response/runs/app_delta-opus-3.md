@@ -6,21 +6,23 @@
 
 ## Claude Output
 
-All 32 specs pass. Here's a summary of what was implemented:
+Good — the select service only auto-rejects `pending` responses, so withdrawn ones are naturally excluded.
 
-**Feature: Provider can withdraw their response to an announcement**
+Here's a summary of all changes:
 
-A provider can withdraw their pending response before the client selects or rejects it.
+**Model** (`app/models/response.rb`): Added `withdrawn` state and `withdraw` event transitioning from `pending` to `withdrawn`.
 
-**Changes:**
+**Service** (`app/services/responses/withdraw_service.rb`): New service that verifies the provider owns the response, transitions it to `withdrawn`, and notifies the announcement's client.
 
-1. **`app/models/response.rb`** — Added `withdrawn` state and `withdraw` event (transitions from `pending` to `withdrawn`)
-2. **`app/services/responses/withdraw_service.rb`** — New service that verifies the provider owns the response, performs the withdrawal, and notifies the client
-3. **`app/controllers/api/responses_controller.rb`** — Added `withdraw` action that authenticates the provider and delegates to `WithdrawService`
-4. **`config/routes.rb`** — Added `PATCH /api/responses/:id/withdraw` endpoint
-5. **`spec/models/response_spec.rb`** — Tests for withdraw state transitions
-6. **`spec/services/responses/withdraw_service_spec.rb`** — Tests for authorization, success, and invalid state cases
-7. **`spec/factories/responses.rb`** — Added `:withdrawn` trait
+**Controller** (`app/controllers/api/responses_controller.rb`): Added `withdraw` action that authenticates the provider and delegates to the service.
+
+**Route** (`config/routes.rb`): Added `PATCH /api/responses/:id/withdraw`.
+
+**Tests**: Model specs for the new state transitions, service specs covering success, authorization, and invalid state transitions.
+
+**Factory**: Added `:withdrawn` trait.
+
+API usage: `PATCH /api/responses/:id/withdraw` with a provider's Bearer token.
 
 ---
 
@@ -162,7 +164,7 @@ index 43a940a..c296ad7 100644
  end
 diff --git a/app_delta/spec/services/responses/withdraw_service_spec.rb b/app_delta/spec/services/responses/withdraw_service_spec.rb
 new file mode 100644
-index 0000000..0b5a0bf
+index 0000000..1086ac5
 --- /dev/null
 +++ b/app_delta/spec/services/responses/withdraw_service_spec.rb
 @@ -0,0 +1,52 @@
@@ -208,8 +210,8 @@ index 0000000..0b5a0bf
 +      end
 +    end
 +
-+    context "when response is already rejected" do
-+      before { response.reject! }
++    context "when response is already withdrawn" do
++      before { response.withdraw! }
 +
 +      it "returns error" do
 +        expect(result[:success]).to be false

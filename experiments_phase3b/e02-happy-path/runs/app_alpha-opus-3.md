@@ -3,27 +3,45 @@
 
 ---
 
-The main entity is **Request**. Here's the happy path:
+The main entity in this system is the **Request** — a service booking between a Client and a Provider. Here's the happy path step by step:
 
-## Happy Path: Request lifecycle
+---
 
-**1. Client creates a Request**
-- A `Client` calls `POST /api/requests` with `provider_id`, `scheduled_at`, `duration_minutes`, and optionally `location` and `notes`.
-- `Requests::CreateService` builds the Request, which starts in the **`pending`** state (the AASM initial state).
-- The provider is notified via `NotificationService` (`:request_created`).
+### 1. Client registers
+`POST /api/clients/register` — A client signs up with their name and email. The system generates a unique `api_token` they'll use for all future API calls.
 
-**2. Provider accepts the Request**
-- The assigned `Provider` calls `POST /api/requests/:id/accept`.
-- `Requests::AcceptService` verifies the provider owns this request, then triggers the `accept!` AASM event.
-- State transitions: **`pending` → `accepted`**.
-- `accepted_at` is stamped with the current time.
-- The client is notified (`:request_accepted`).
+### 2. Provider registers
+`POST /api/providers/register` — A provider signs up similarly, receiving their own `api_token`.
 
-**3. The service is delivered**
-- The request has a `scheduled_at` datetime and `duration_minutes` — the provider shows up at the `location` and performs the service.
+### 3. Client adds a payment card
+`POST /api/cards` — The client stores a payment card (brand, last four digits, expiration, tokenized reference) and can mark one as their default via `PATCH /api/cards/:id/default`.
 
-That's the happy path: **pending → accepted → service delivered**.
+### 4. Client creates a Request
+`POST /api/requests` — The client specifies a `provider_id`, `scheduled_at`, `duration_minutes`, and optionally `location` and `notes`. The `Requests::CreateService`:
+- Builds the Request record in its initial **pending** state
+- Saves it to the database
+- Sends a notification to the provider (`:request_created` via push/SMS/email per their preferences)
+- Returns the created request
 
-### Unhappy paths (for context)
-- **Declined**: Provider calls `decline` with a `reason` → state goes to `declined`.
-- **Expired**: If the provider never responds, the `expire` event moves it to `expired` (with an `expired_at` timestamp). There's no automated expiration job visible in the code — this would be triggered externally or via a scheduled task.
+### 5. Provider accepts the Request
+`PATCH /api/requests/:id/accept` — The assigned provider reviews the pending request and accepts it. The `Requests::AcceptService`:
+- Verifies the provider owns this request
+- Transitions the state from **pending** → **accepted** (via AASM)
+- Records `accepted_at` timestamp
+- Sends a notification to the client (`:request_accepted`)
+
+### 6. Service is delivered
+At the `scheduled_at` time, the provider delivers the service for the specified `duration_minutes` at the given `location`. (There's no explicit "completed" state in the current model — accepted is the terminal happy-path state.)
+
+---
+
+**State machine summary:**
+
+```
+pending  ──accept──▶  accepted   ← happy path
+   │
+   ├──decline──▶  declined  (provider gives a reason)
+   └──expire───▶  expired   (request goes stale)
+```
+
+The happy path is: **register → add card → create request → provider accepts → service happens**.
