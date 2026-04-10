@@ -74,15 +74,15 @@ Does calling it "Request" instead of "Order" cause AI agents to reason different
 
 ### The Apps
 
-| | **affordance_order** | **affordance_request** | **affordance_request_clean** |
+| | **order** | **request** | **request_clean** |
 |---|---|---|---|
 | Entity name | Order | Request | Request |
 | States | 6 clean | 9 legacy (invitation-era) | 6 clean (same as Order) |
 | Services | 6 | 8 | 6 (same as Order) |
 | Purpose | Baseline | Legacy codebase | **Control: isolates naming from structure** |
 
-The control app (`affordance_request_clean`) is the decisive test. It shares
-`affordance_request`'s entity name but `affordance_order`'s clean structure.
+The control app (`request_clean`) is the decisive test. It shares
+`request`'s entity name but `order`'s clean structure.
 
 ### The Experiments
 
