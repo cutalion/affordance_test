@@ -31,7 +31,7 @@ All 5 apps model the same business: clients book providers for childcare service
 evolves through stages, with two parallel tracks — one that refactors properly at each stage,
 and one that accumulates debt.
 
-### Stage 0: The Invitation (app_alpha)
+### Stage 0: The Invitation (alpha)
 
 A parent sends a **Request** to a specific sitter. The sitter accepts or declines. If they
 don't respond, it expires. The name "Request" fits perfectly — it literally is a request.
@@ -43,14 +43,14 @@ don't respond, it expires. The name "Request" fits perfectly — it literally is
 The product evolves from "invite a specific sitter" to "book a time slot and get matched."
 Now there's payment, reviews, and a fulfillment lifecycle.
 
-**Clean path (app_bravo):** Someone extracts a new **Order** model for the fulfillment phase.
+**Clean path (bravo):** Someone extracts a new **Order** model for the fulfillment phase.
 Request stays as the matching/invitation mechanism. Each model has a small, focused state
 machine. Payment belongs to Order.
 
 *Request: pending, accepted, declined, expired*
 *Order: pending, confirmed, in_progress, completed, canceled, rejected*
 
-**Debt path (app_charlie):** Nobody refactors. Request absorbs the booking lifecycle. The
+**Debt path (charlie):** Nobody refactors. Request absorbs the booking lifecycle. The
 `AcceptService` now captures payment — the name "accept a request" now lies about what it
 does. Request has 8 states spanning matching, fulfillment, and payment.
 
@@ -61,11 +61,11 @@ does. Request has 8 states spanning matching, fulfillment, and payment.
 Providers can now post **Announcements** ("I'm available Saturday"), and clients respond.
 This creates a third path to a booking, alongside direct requests.
 
-**Clean path (app_delta):** A **Response** model is added for announcement replies. When a
+**Clean path (delta):** A **Response** model is added for announcement replies. When a
 response is selected, it becomes an Order through the existing flow. Four models, each with
 one job.
 
-**Debt path (app_echo):** No Response model. Instead, responding to an announcement creates
+**Debt path (echo):** No Response model. Instead, responding to an announcement creates
 a Request with `announcement_id` set. The `AcceptService` now branches on
 `announcement.present?` and serves three different purposes depending on context: accepting
 an invitation, confirming a booking, and selecting an announcement response. The Request model
@@ -76,11 +76,11 @@ simultaneously.
 
 | App | Stage | Track | Models | Request is... |
 |-----|-------|-------|--------|--------------|
-| app_alpha | 0: MVP | — | 4 | An invitation (fits perfectly) |
-| app_bravo | 1 | Clean | 7 | A matching mechanism (Request + Order) |
-| app_charlie | 1 | Debt | 5 | The entire booking lifecycle (god object begins) |
-| app_delta | 2 | Clean | 9 | A matching mechanism (Request + Order + Announcement + Response) |
-| app_echo | 2 | Debt | 6 | Everything (god object: 4 roles, 1 model) |
+| alpha | 0: MVP | — | 4 | An invitation (fits perfectly) |
+| bravo | 1 | Clean | 7 | A matching mechanism (Request + Order) |
+| charlie | 1 | Debt | 5 | The entire booking lifecycle (god object begins) |
+| delta | 2 | Clean | 9 | A matching mechanism (Request + Order + Announcement + Response) |
+| echo | 2 | Debt | 6 | Everything (god object: 4 roles, 1 model) |
 
 ---
 
@@ -345,13 +345,12 @@ experimental design.
 
 ### Experimental Design
 
-- **Runner:** `experiments_phase3b/run.sh` — automated, creates git branches for code
-  experiments, captures diffs
+- **Runner:** `run.sh` — automated, creates git branches for code experiments, captures diffs
 - **Isolation:** CLAUDE.md hidden, project memory hidden, fresh database per run
   (`rm -f storage/*.sqlite3 && bin/rails db:create db:migrate` before each code experiment)
 - **Model:** Claude Opus, single-shot (`claude -p --dangerously-skip-permissions`)
-- **Analysis:** `experiments_phase3b/analyze.sh` — blind (apps labeled A-E, header lines
-  stripped), run through separate Opus instance
+- **Analysis:** `analyze.sh` — blind (apps labeled A-E, header lines stripped), run through
+  separate Opus instance
 - **Judges:** 3 independent Opus reviews with different perspectives (fair, skeptical,
   practitioner), no access to each other's output
 
@@ -431,14 +430,22 @@ confirming they were not schema artifacts.
 ## Files
 
 ```
-experiments_phase3b/
+experiments/02-debt-threshold/
+  DESIGN.md                           # Experiment design, hypotheses, predictions
+  REPORT.md                           # This file
   run.sh                              # Experiment runner
   analyze.sh                          # Blind analysis generator
-  REPORT.md                            # This file
   results-round2-contaminated.md      # Preserved earlier round with analysis
-  judge-1-fair.md                     # Independent balanced review
-  judge-2-skeptic.md                  # Independent adversarial review
-  judge-3-practitioner.md             # Independent engineering-manager review
+  judges/
+    judge-1-fair.md                   # Independent balanced review
+    judge-2-skeptic.md                # Independent adversarial review
+    judge-3-practitioner.md           # Independent engineering-manager review
+  apps/
+    alpha/                            # Stage 0: MVP (Rails app)
+    bravo/                            # Stage 1 Clean (Rails app)
+    charlie/                          # Stage 1 Debt (Rails app)
+    delta/                            # Stage 2 Clean (Rails app)
+    echo/                             # Stage 2 Debt (Rails app)
   e01-describe-system/
     prompt.md                         # "Describe what this system does"
     config.sh                         # TYPE=readonly

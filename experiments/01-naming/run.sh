@@ -1,15 +1,17 @@
 #!/bin/bash
 set -euo pipefail
 
-# Experiment runner for affordance test
-# Usage: ./experiments/run.sh [experiment] [model] [app] [max_run]
+# Experiment runner for naming affordance test
+# Usage: ./experiments/01-naming/run.sh [experiment] [model] [app] [max_run]
 # All arguments optional — defaults to running everything.
 # Skips completed runs (output file already exists).
 
 # Ensure claude -p uses subscription auth, not API key
 unset ANTHROPIC_API_KEY
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+APPS_DIR="$SCRIPT_DIR/apps"
 EXPERIMENTS="${1:-01-describe-system 02-rebook-feature 03-propose-different-time 04-bulk-booking 05-auto-assignment 06-cancellation-fee 07-happy-path}"
 MODELS="${2:-sonnet opus}"
 APPS="${3:-order request request_clean}"
@@ -33,34 +35,43 @@ for exp in $EXPERIMENTS; do
   done
 done
 
-# Hide CLAUDE.md to prevent experiment contamination (it mentions "affordance test")
+# Hide CLAUDE.md and project memory to prevent experiment contamination
+MEMORY_DIR="$HOME/.claude/projects/-home-cutalion-code-affordance-test/memory"
+restore_hidden() {
+  mv "$ROOT/.CLAUDE.md.hidden" "$ROOT/CLAUDE.md" 2>/dev/null || true
+  mv "$MEMORY_DIR.hidden" "$MEMORY_DIR" 2>/dev/null || true
+}
+trap restore_hidden EXIT
+
 if [ -f "$ROOT/CLAUDE.md" ]; then
   mv "$ROOT/CLAUDE.md" "$ROOT/.CLAUDE.md.hidden"
-  trap 'mv "$ROOT/.CLAUDE.md.hidden" "$ROOT/CLAUDE.md" 2>/dev/null || true' EXIT
+fi
+if [ -d "$MEMORY_DIR" ]; then
+  mv "$MEMORY_DIR" "$MEMORY_DIR.hidden"
 fi
 
-echo "=== Affordance Experiment Runner ==="
+echo "=== Naming Affordance Experiment Runner ==="
 echo "Experiments: $EXPERIMENTS"
 echo "Models: $MODELS"
 echo "Apps: $APPS"
 echo "Runs per combo: $MAX_RUN"
 echo "Total invocations: $TOTAL"
-echo "==================================="
+echo "============================================"
 echo ""
 
 for exp in $EXPERIMENTS; do
   # Load config
-  source "$ROOT/experiments/$exp/config.sh"
-  PROMPT=$(cat "$ROOT/experiments/$exp/prompt.md")
+  source "$SCRIPT_DIR/$exp/config.sh"
+  PROMPT=$(cat "$SCRIPT_DIR/$exp/prompt.md")
 
   echo "--- Experiment: $exp (type=$TYPE) ---"
 
   for model in $MODELS; do
     for app in $APPS; do
-      APP_DIR="$ROOT/affordance_$app"
+      APP_DIR="$APPS_DIR/$app"
 
       for run in $(seq 1 "$MAX_RUN"); do
-        OUTPUT_FILE="$ROOT/experiments/$exp/runs/${app}-${model}-${run}.md"
+        OUTPUT_FILE="$SCRIPT_DIR/$exp/runs/${app}-${model}-${run}.md"
         RUN_LABEL="$exp/$app/$model/run-$run"
 
         CURRENT=$((CURRENT + 1))
@@ -90,11 +101,11 @@ for exp in $EXPERIMENTS; do
 
           # Commit any uncommitted changes (only app directory)
           cd "$ROOT"
-          git add "affordance_$app/" 2>/dev/null || true
+          git add "experiments/01-naming/apps/$app/" 2>/dev/null || true
           git diff --cached --quiet 2>/dev/null || git commit -m "experiment: $exp $app $model run-$run (auto-committed)" 2>/dev/null || true
 
           # Capture diff (only app directory changes)
-          DIFF=$(git diff main..HEAD -- "affordance_$app/" 2>/dev/null) || DIFF="(no diff)"
+          DIFF=$(git diff main..HEAD -- "experiments/01-naming/apps/$app/" 2>/dev/null) || DIFF="(no diff)"
 
           {
             echo "# Experiment: $exp"
@@ -156,7 +167,7 @@ WALL_ELAPSED=$(( WALL_END - WALL_START ))
 WALL_MIN=$(( WALL_ELAPSED / 60 ))
 WALL_SEC=$(( WALL_ELAPSED % 60 ))
 
-echo "==================================="
+echo "============================================"
 echo "Complete: $DONE | Skipped: $SKIPPED | Failed: $FAILED | Total: $TOTAL"
 echo "Wall time: ${WALL_MIN}m ${WALL_SEC}s"
-echo "==================================="
+echo "============================================"

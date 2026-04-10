@@ -13,7 +13,7 @@ We asked whether the *name* of a central entity ("Order" vs "Request") affects h
 
 **The revised conclusion: structure, not naming, drives AI behavior.**
 
-A third app (`affordance_request_clean/`) was created with "Request" as the entity name but the same clean 6-state machine, 6 services, and identical code structure as the Order app. Across 7 experiments and 42 new runs, this control app behaved like the Order app in every case — never like the legacy Request app. Three independent judges, reviewing raw data without access to our prior conclusions, reached the same verdict unanimously.
+A third app (`apps/request_clean/`) was created with "Request" as the entity name but the same clean 6-state machine, 6 services, and identical code structure as the Order app. Across 7 experiments and 42 new runs, this control app behaved like the Order app in every case — never like the legacy Request app. Three independent judges, reviewing raw data without access to our prior conclusions, reached the same verdict unanimously.
 
 The word "Request" vs "Order" has no detectable effect on AI-generated code. What matters is what the AI finds in the codebase: the states in the state machine, the events available, the services that exist, the patterns already established.
 

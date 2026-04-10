@@ -3,18 +3,34 @@ set -euo pipefail
 
 unset ANTHROPIC_API_KEY
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 EXPERIMENTS="${1:-e01-describe-system e02-happy-path e03-counter-proposal e04-cancellation-fee e05-recurring-bookings e06-withdraw-response}"
 
-APP_LABELS=("app_alpha:A" "app_bravo:B" "app_charlie:C" "app_delta:D" "app_echo:E")
+APP_LABELS=("alpha:A" "bravo:B" "charlie:C" "delta:D" "echo:E")
+
+# Hide CLAUDE.md and project memory to prevent domain leaks
+MEMORY_DIR="$HOME/.claude/projects/-home-cutalion-code-affordance-test/memory"
+restore_hidden() {
+  mv "$ROOT/.CLAUDE.md.hidden" "$ROOT/CLAUDE.md" 2>/dev/null || true
+  mv "$MEMORY_DIR.hidden" "$MEMORY_DIR" 2>/dev/null || true
+}
+trap restore_hidden EXIT
+
+if [ -f "$ROOT/CLAUDE.md" ]; then
+  mv "$ROOT/CLAUDE.md" "$ROOT/.CLAUDE.md.hidden"
+fi
+if [ -d "$MEMORY_DIR" ]; then
+  mv "$MEMORY_DIR" "$MEMORY_DIR.hidden"
+fi
 
 echo "=== Debt Threshold Experiment Analyzer ==="
 echo ""
 
 for exp in $EXPERIMENTS; do
-  ANALYSIS_FILE="$ROOT/experiments_phase3b/$exp/analysis.md"
-  PROMPT_FILE="$ROOT/experiments_phase3b/$exp/prompt.md"
-  RUNS_DIR="$ROOT/experiments_phase3b/$exp/runs"
+  ANALYSIS_FILE="$SCRIPT_DIR/$exp/analysis.md"
+  PROMPT_FILE="$SCRIPT_DIR/$exp/prompt.md"
+  RUNS_DIR="$SCRIPT_DIR/$exp/runs"
 
   RUN_COUNT=$(find "$RUNS_DIR" -name "*.md" 2>/dev/null | wc -l)
   if [ "$RUN_COUNT" -eq 0 ]; then
@@ -82,7 +98,7 @@ Provide:
 - Bottom line: one paragraph on the most important finding
 ANALYSIS_INSTRUCTIONS
 
-  RESULT=$(cat "$TMPFILE" | claude -p --dangerously-skip-permissions --disable-slash-commands --model opus 2>/dev/null) || true
+  RESULT=$(cat "$TMPFILE" | claude -p --dangerously-skip-permissions --disable-slash-commands --model opus 2>&1) || true
   rm -f "$TMPFILE"
 
   if [ -n "$RESULT" ]; then

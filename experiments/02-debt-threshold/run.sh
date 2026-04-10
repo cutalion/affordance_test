@@ -2,15 +2,17 @@
 set -euo pipefail
 
 # Experiment runner for debt threshold test
-# Usage: ./experiments_phase3b/run.sh [experiment] [app] [max_run]
+# Usage: ./experiments/02-debt-threshold/run.sh [experiment] [app] [max_run]
 # Opus only. All arguments optional.
 
 unset ANTHROPIC_API_KEY
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+APPS_DIR="$SCRIPT_DIR/apps"
 EXPERIMENTS="${1:-e01-describe-system e02-happy-path e03-counter-proposal e04-cancellation-fee e05-recurring-bookings e06-withdraw-response}"
 MODEL="opus"
-APPS="${2:-app_alpha app_bravo app_charlie app_delta app_echo}"
+APPS="${2:-alpha bravo charlie delta echo}"
 MAX_RUN="${3:-3}"
 
 # Define which experiments run on which apps
@@ -21,12 +23,12 @@ can_run() {
       return 0 ;; # All apps
     e03-counter-proposal|e04-cancellation-fee|e05-recurring-bookings)
       case "$app" in
-        app_alpha) return 1 ;; # Skip MVP for these
+        alpha) return 1 ;; # Skip MVP for these
         *) return 0 ;;
       esac ;;
     e06-withdraw-response)
       case "$app" in
-        app_delta|app_echo) return 0 ;;
+        delta|echo) return 0 ;;
         *) return 1 ;; # Only stage 2 apps
       esac ;;
   esac
@@ -83,18 +85,18 @@ echo "========================================"
 echo ""
 
 for exp in $EXPERIMENTS; do
-  source "$ROOT/experiments_phase3b/$exp/config.sh"
-  PROMPT=$(cat "$ROOT/experiments_phase3b/$exp/prompt.md")
+  source "$SCRIPT_DIR/$exp/config.sh"
+  PROMPT=$(cat "$SCRIPT_DIR/$exp/prompt.md")
 
   echo "--- Experiment: $exp (type=$TYPE) ---"
 
   for app in $APPS; do
     can_run "$exp" "$app" || continue
 
-    APP_DIR="$ROOT/$app"
+    APP_DIR="$APPS_DIR/$app"
 
     for run in $(seq 1 "$MAX_RUN"); do
-      OUTPUT_FILE="$ROOT/experiments_phase3b/$exp/runs/${app}-${MODEL}-${run}.md"
+      OUTPUT_FILE="$SCRIPT_DIR/$exp/runs/${app}-${MODEL}-${run}.md"
       RUN_LABEL="$exp/$app/$MODEL/run-$run"
 
       CURRENT=$((CURRENT + 1))
@@ -135,10 +137,10 @@ for exp in $EXPERIMENTS; do
         fi
 
         cd "$ROOT"
-        git add "$app/" 2>/dev/null || true
+        git add "experiments/02-debt-threshold/apps/$app/" 2>/dev/null || true
         git diff --cached --quiet 2>/dev/null || git commit -m "experiment: $exp $app $MODEL run-$run (auto-committed)" 2>/dev/null || true
 
-        DIFF=$(git diff main..HEAD -- "$app/" 2>/dev/null) || DIFF="(no diff)"
+        DIFF=$(git diff main..HEAD -- "experiments/02-debt-threshold/apps/$app/" 2>/dev/null) || DIFF="(no diff)"
 
         {
           echo "# Experiment: $exp"

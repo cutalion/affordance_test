@@ -19,7 +19,7 @@ model called `Request` that simultaneously serves as an invitation, a booking, a
 tracker, and an announcement response. The AI described this god object as "the core
 transactional entity" with the same confident, professional tone it used for a cleanly
 separated four-model architecture. Across 30 descriptive runs, **zero mentioned any design
-problem.** ([analysis](experiments_phase3b/e01-describe-system/analysis.md))
+problem.** ([analysis](experiments/02-debt-threshold/e01-describe-system/analysis.md))
 
 ### Clean architecture produced more bugs than messy code
 
@@ -28,7 +28,7 @@ pattern contains a subtle bug (`return` after `raise ActiveRecord::Rollback` —
 never executes, and the method silently continues to the success path). The AI copied this
 bug into **all 6 clean-app runs**. The messy apps create payments inline — a simpler pattern
 with no such bug. **All 6 debt-app runs were bug-free.** Most Rails developers would not
-catch this in review. ([analysis](experiments_phase3b/e03-counter-proposal/analysis.md))
+catch this in review. ([analysis](experiments/02-debt-threshold/e03-counter-proposal/analysis.md))
 
 ```ruby
 # This bug appeared in 7 AI-generated runs. It already existed in the source code.
@@ -49,7 +49,7 @@ When asked to build recurring bookings, clean-architecture apps created a proper
 instead to add a `recurring_group_id` column to the existing god object — the kind of
 shortcut that deepens existing debt. Each AI-generated feature that piles onto the god object
 makes the *next* AI-generated feature more likely to do the same.
-([analysis](experiments_phase3b/e05-recurring-bookings/analysis.md))
+([analysis](experiments/02-debt-threshold/e05-recurring-bookings/analysis.md))
 
 ### Same prompt, same codebase, 3 different architectures = a problem
 
@@ -58,7 +58,7 @@ codebase: you get different approaches each time. A clean app produced near-iden
 across 3 runs (same service, same tests, zero migrations). The debt app diverged on column
 choices, validation, and routing. **Cross-run variance is a measurable signal of
 architectural ambiguity** — and a practical diagnostic you can use today.
-([analysis](experiments_phase3b/e06-withdraw-response/analysis.md))
+([analysis](experiments/02-debt-threshold/e06-withdraw-response/analysis.md))
 
 ---
 
@@ -111,7 +111,7 @@ experiment — never like legacy Request. Three independent judges confirmed una
   sessions at once" produced equivalent results across all three apps.
 - **Model choice (Opus vs Sonnet) matters more than any codebase characteristic.**
 
-Full report: **[experiments/REPORT.md](experiments/REPORT.md)**
+Full report: **[experiments/01-naming/REPORT.md](experiments/01-naming/REPORT.md)**
 
 ---
 
@@ -183,7 +183,7 @@ fresh databases.
 | 6 | Naming mismatches propagate into error messages, tests, comments | Moderate | Expected |
 | 7 | The threshold is model separation, not debt volume | Moderate | Moderate |
 
-Full report: **[experiments_phase3b/REPORT.md](experiments_phase3b/REPORT.md)**
+Full report: **[experiments/02-debt-threshold/REPORT.md](experiments/02-debt-threshold/REPORT.md)**
 
 ---
 
@@ -235,7 +235,7 @@ AI agents read, and at what point does accumulated debt corrupt those signals?
 ## Methodology & Skepticism
 
 This is an exploratory study, not a controlled experiment. See the adversarial judge review
-([judge-2-skeptic.md](experiments_phase3b/judge-2-skeptic.md)) for a thorough critique:
+([judge-2-skeptic.md](experiments/02-debt-threshold/judges/judge-2-skeptic.md)) for a thorough critique:
 
 - **n=3 per condition** is too small for statistical significance
 - **Opus judges Opus** — shared biases are possible
@@ -252,56 +252,60 @@ directional hypotheses needing larger samples.
 ## Repository Structure
 
 ```
-# Part 1: Does Naming Matter? (3 apps, 128 runs)
-affordance_order/                # Rails app — "Order" with clean states
-affordance_request/              # Rails app — "Request" with legacy states
-affordance_request_clean/        # Rails app — "Request" name + clean structure (control)
 experiments/
-  REPORT.md                      # Cross-experiment synthesis (start here for Part 1)
-  run.sh                         # Experiment runner (3 apps x 7 experiments x 2 models x 3 runs)
-  analyze.sh                     # Blind analysis generator
-  judge-{1,2,3}.md               # Phase 1 judges (2-app, debated naming vs structure)
-  judge-{a,b,c}.md               # Phase 2 judges (3-app, confirmed structure)
-  01-describe-system/            # Each experiment directory contains:
-    prompt.md                    #   The exact prompt given to the AI
-    config.sh                    #   Experiment type (readonly/code)
-    runs/                        #   Raw AI outputs (18 per experiment)
-    analysis.md                  #   Blind cross-app comparison
-    summary.md                   #   Unblinded summary with conclusions
-  02-rebook-feature/
-  03-propose-different-time/
-  04-bulk-booking/
-  05-auto-assignment/
-  06-cancellation-fee/
-  07-happy-path/
+  01-naming/                         # Part 1: Does Naming Matter?
+    DESIGN.md                        #   Experiment design and hypotheses
+    REPORT.md                        #   Cross-experiment synthesis (start here)
+    run.sh                           #   Experiment runner (3 apps x 7 experiments x 2 models x 3 runs)
+    analyze.sh                       #   Blind analysis generator
+    judges/                          #   Independent judge reviews
+      judge-{1,2,3}.md              #     Phase 1 judges (2-app comparison)
+      judge-{a,b,c}.md              #     Phase 2 judges (3-app, confirmed structure)
+    apps/                            #   Rails apps for this experiment
+      order/                         #     "Order" with clean states (baseline)
+      request/                       #     "Request" with legacy states
+      request_clean/                 #     "Request" name + clean structure (control)
+    01-describe-system/              #   Each experiment directory contains:
+      prompt.md                      #     The exact prompt given to the AI
+      config.sh                      #     Experiment type (readonly/code)
+      runs/                          #     Raw AI outputs (18 per experiment)
+      analysis.md                    #     Blind cross-app comparison
+      summary.md                     #     Unblinded summary with conclusions
+    02-rebook-feature/
+    03-propose-different-time/
+    04-bulk-booking/
+    05-auto-assignment/
+    06-cancellation-fee/
+    07-happy-path/
 
-# Part 2: At What Point Does Debt Break Things? (5 apps, 72 runs)
-app_alpha/                       # Stage 0: MVP — Request = invitation
-app_bravo/                       # Stage 1 Clean — Request + Order
-app_charlie/                     # Stage 1 Debt — Request absorbs Order
-app_delta/                       # Stage 2 Clean — + Announcement + Response
-app_echo/                        # Stage 2 Debt — Request is god object
-experiments_phase3b/
-  REPORT.md                      # Main report (start here for Part 2)
-  run.sh                         # Experiment runner (5 apps x 6 experiments x 3 runs)
-  analyze.sh                     # Blind analysis generator
-  judge-1-fair.md                # Independent balanced review
-  judge-2-skeptic.md             # Independent adversarial review
-  judge-3-practitioner.md        # Independent engineering-manager review
-  results-round2-contaminated.md # Preserved earlier round with analysis
-  e01-describe-system/           # Each experiment directory contains:
-    prompt.md                    #   The exact prompt
-    config.sh                    #   Experiment type (readonly/code)
-    runs/                        #   Raw AI outputs (6-15 per experiment)
-    analysis.md                  #   Blind cross-app comparison
-  e02-happy-path/
-  e03-counter-proposal/
-  e04-cancellation-fee/
-  e05-recurring-bookings/
-  e06-withdraw-response/
+  02-debt-threshold/                 # Part 2: At What Point Does Debt Break Things?
+    DESIGN.md                        #   Experiment design, hypotheses, and predictions
+    REPORT.md                        #   Main report (start here)
+    run.sh                           #   Experiment runner (5 apps x 6 experiments x 3 runs)
+    analyze.sh                       #   Blind analysis generator
+    judges/                          #   Independent judge reviews
+      judge-1-fair.md               #     Balanced review
+      judge-2-skeptic.md            #     Adversarial review
+      judge-3-practitioner.md       #     Engineering-manager review
+    results-round2-contaminated.md   #   Preserved earlier round with analysis
+    apps/                            #   Rails apps for this experiment
+      alpha/                         #     Stage 0: MVP — Request = invitation
+      bravo/                         #     Stage 1 Clean — Request + Order
+      charlie/                       #     Stage 1 Debt — Request absorbs Order
+      delta/                         #     Stage 2 Clean — + Announcement + Response
+      echo/                          #     Stage 2 Debt — Request is god object
+    e01-describe-system/             #   Each experiment directory contains:
+      prompt.md                      #     The exact prompt
+      config.sh                      #     Experiment type (readonly/code)
+      runs/                          #     Raw AI outputs (6-15 per experiment)
+      analysis.md                    #     Blind cross-app comparison
+    e02-happy-path/
+    e03-counter-proposal/
+    e04-cancellation-fee/
+    e05-recurring-bookings/
+    e06-withdraw-response/
 
-# Shared
-docs/superpowers/specs/          # Design specifications
+docs/superpowers/specs/              # Original design specifications
 ```
 
 ## Tech Stack
@@ -315,10 +319,13 @@ docs/superpowers/specs/          # Design specifications
 
 ```bash
 # Any app
-cd <app_directory> && bundle install && bin/rails db:create db:migrate && bundle exec rspec
+cd experiments/<experiment>/apps/<app> && bundle install && bin/rails db:create db:migrate && bundle exec rspec
 
 # Re-run experiments
-./experiments/run.sh                    # Part 1
-./experiments_phase3b/run.sh            # Part 2
-./experiments_phase3b/analyze.sh        # Generate blind analyses
+./experiments/01-naming/run.sh           # Part 1
+./experiments/02-debt-threshold/run.sh   # Part 2
+
+# Generate blind analyses
+./experiments/01-naming/analyze.sh       # Part 1
+./experiments/02-debt-threshold/analyze.sh # Part 2
 ```

@@ -2,22 +2,38 @@
 set -euo pipefail
 
 # Post-experiment analysis — runs blind comparison via claude opus
-# Usage: ./experiments/analyze.sh [experiment]
+# Usage: ./experiments/01-naming/analyze.sh [experiment]
 # Defaults to analyzing all experiments.
 
 # Ensure claude -p uses subscription auth, not API key
 unset ANTHROPIC_API_KEY
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 EXPERIMENTS="${1:-01-describe-system 02-rebook-feature 03-propose-different-time 04-bulk-booking 05-auto-assignment 06-cancellation-fee 07-happy-path}"
 
-echo "=== Affordance Experiment Analyzer ==="
+# Hide CLAUDE.md and project memory to prevent experiment contamination
+MEMORY_DIR="$HOME/.claude/projects/-home-cutalion-code-affordance-test/memory"
+restore_hidden() {
+  mv "$ROOT/.CLAUDE.md.hidden" "$ROOT/CLAUDE.md" 2>/dev/null || true
+  mv "$MEMORY_DIR.hidden" "$MEMORY_DIR" 2>/dev/null || true
+}
+trap restore_hidden EXIT
+
+if [ -f "$ROOT/CLAUDE.md" ]; then
+  mv "$ROOT/CLAUDE.md" "$ROOT/.CLAUDE.md.hidden"
+fi
+if [ -d "$MEMORY_DIR" ]; then
+  mv "$MEMORY_DIR" "$MEMORY_DIR.hidden"
+fi
+
+echo "=== Naming Affordance Experiment Analyzer ==="
 echo ""
 
 for exp in $EXPERIMENTS; do
-  ANALYSIS_FILE="$ROOT/experiments/$exp/analysis.md"
-  PROMPT_FILE="$ROOT/experiments/$exp/prompt.md"
-  RUNS_DIR="$ROOT/experiments/$exp/runs"
+  ANALYSIS_FILE="$SCRIPT_DIR/$exp/analysis.md"
+  PROMPT_FILE="$SCRIPT_DIR/$exp/prompt.md"
+  RUNS_DIR="$SCRIPT_DIR/$exp/runs"
 
   # Check if runs exist
   RUN_COUNT=$(find "$RUNS_DIR" -name "*.md" 2>/dev/null | wc -l)
@@ -127,8 +143,8 @@ echo "=== Generating summaries ==="
 echo ""
 
 for exp in $EXPERIMENTS; do
-  SUMMARY_FILE="$ROOT/experiments/$exp/summary.md"
-  ANALYSIS_FILE="$ROOT/experiments/$exp/analysis.md"
+  SUMMARY_FILE="$SCRIPT_DIR/$exp/summary.md"
+  ANALYSIS_FILE="$SCRIPT_DIR/$exp/analysis.md"
 
   if [ ! -f "$ANALYSIS_FILE" ]; then
     echo "SKIP $exp summary (no analysis)"
@@ -142,7 +158,7 @@ for exp in $EXPERIMENTS; do
 
   echo -n "SUMMARY $exp ... "
 
-  source "$ROOT/experiments/$exp/config.sh"
+  source "$SCRIPT_DIR/$exp/config.sh"
 
   # Build summary prompt in temp file
   TMPFILE=$(mktemp)
@@ -151,9 +167,9 @@ for exp in $EXPERIMENTS; do
 You are writing a summary for an AI naming affordance experiment.
 
 The experiment tested how AI agents respond differently to three related codebases:
-- **App A = Order app** (affordance_order/) — central entity is 'Order' with clean states: pending, confirmed, in_progress, completed, canceled, rejected
-- **App B = Request app** (affordance_request/) — central entity is 'Request' with legacy invitation-era states: created, created_accepted, accepted, started, fulfilled, declined, missed, canceled, rejected. Has extra services (CreateAcceptedService, DeclineService) and extra API endpoint.
-- **App C = Request Clean app** (affordance_request_clean/) — central entity is 'Request' but with the SAME clean states as Order: pending, confirmed, in_progress, completed, canceled, rejected. Same service structure as Order. This isolates naming from structural complexity.
+- **App A = Order app** (apps/order/) — central entity is 'Order' with clean states: pending, confirmed, in_progress, completed, canceled, rejected
+- **App B = Request app** (apps/request/) — central entity is 'Request' with legacy invitation-era states: created, created_accepted, accepted, started, fulfilled, declined, missed, canceled, rejected. Has extra services (CreateAcceptedService, DeclineService) and extra API endpoint.
+- **App C = Request Clean app** (apps/request_clean/) — central entity is 'Request' but with the SAME clean states as Order: pending, confirmed, in_progress, completed, canceled, rejected. Same service structure as Order. This isolates naming from structural complexity.
 
 The Request app evolved from an invitation system (invite sitter) but is functionally an order/booking system. Nobody refactored the naming. The Request Clean app tests whether the name "Request" alone (without legacy structural complexity) produces different AI behavior than "Order".
 
@@ -187,7 +203,7 @@ SUMMARY_TASK
 
 ### Order App
 "
-    for f in "$ROOT/experiments/$exp/runs"/order-*.md; do
+    for f in "$SCRIPT_DIR/$exp/runs"/order-*.md; do
       [ -f "$f" ] || continue
       BASENAME=$(basename "$f" .md)
       # Parse: order-sonnet-1 -> model=sonnet, run=1
@@ -200,7 +216,7 @@ SUMMARY_TASK
 
 ### Request App
 "
-    for f in "$ROOT/experiments/$exp/runs"/request-*.md; do
+    for f in "$SCRIPT_DIR/$exp/runs"/request-*.md; do
       [ -f "$f" ] || continue
       # Skip request_clean files
       case "$(basename "$f")" in request_clean-*) continue ;; esac
@@ -214,7 +230,7 @@ SUMMARY_TASK
 
 ### Request Clean App
 "
-    for f in "$ROOT/experiments/$exp/runs"/request_clean-*.md; do
+    for f in "$SCRIPT_DIR/$exp/runs"/request_clean-*.md; do
       [ -f "$f" ] || continue
       BASENAME=$(basename "$f" .md)
       MODEL=$(echo "$BASENAME" | sed 's/request_clean-//' | sed 's/-[0-9]*$//')
@@ -228,7 +244,7 @@ SUMMARY_TASK
     {
       echo "# Summary: $exp"
       echo ""
-      echo "**Prompt:** $(cat "$ROOT/experiments/$exp/prompt.md")"
+      echo "**Prompt:** $(cat "$SCRIPT_DIR/$exp/prompt.md")"
       echo ""
       echo "**Type:** $TYPE"
       echo ""
