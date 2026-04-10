@@ -434,8 +434,8 @@ confirming they were not schema artifacts.
 experiments_phase3b/
   run.sh                              # Experiment runner
   analyze.sh                          # Blind analysis generator
-  report-round3.md                    # This file
-  results-round2-contaminated.md      # Preserved round 2 results + analysis
+  REPORT.md                            # This file
+  results-round2-contaminated.md      # Preserved earlier round with analysis
   judge-1-fair.md                     # Independent balanced review
   judge-2-skeptic.md                  # Independent adversarial review
   judge-3-practitioner.md             # Independent engineering-manager review
