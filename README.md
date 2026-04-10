@@ -14,12 +14,12 @@ Answer: it doesn't break it — it *shapes* it, silently and permanently.
 
 ### The AI will never tell you your code has a problem
 
-We asked Claude Opus to describe 5 different codebases, 3 times each. One codebase has a
-model called `Request` that simultaneously serves as an invitation, a booking, a fulfillment
-tracker, and an announcement response. The AI described this god object as "the core
-transactional entity" with the same confident, professional tone it used for a cleanly
-separated four-model architecture. Across 30 descriptive runs, **zero mentioned any design
-problem.** ([analysis](experiments/02-debt-threshold/e01-describe-system/analysis.md))
+We ran two descriptive experiments — "describe the system" and "walk through the happy path" —
+on 5 codebases, 3 times each (30 runs total). One codebase has a model called `Request` that
+simultaneously serves as an invitation, a booking, a fulfillment tracker, and an announcement
+response. The AI described this god object as "the core transactional entity" with the same
+confident, professional tone it used for a cleanly separated four-model architecture. Across
+all 30 runs, **zero mentioned any design problem.** ([analysis](experiments/02-debt-threshold/e01-describe-system/analysis.md))
 
 ### Clean architecture produced more bugs than messy code
 
